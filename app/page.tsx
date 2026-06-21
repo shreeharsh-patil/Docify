@@ -2,11 +2,13 @@
 
 import React, { useState, useEffect, Suspense } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
+import Image from 'next/image';
+import Link from 'next/link';
 import PdfWorkspace from '@/components/PdfWorkspace';
 import AuthModal from '@/components/AuthModal';
 import { 
   FileText, Sliders, Type, Lock, Unlock, Edit, 
-  Image, RotateCw, Split, Layers, FolderClosed, 
+  Image as ImageIcon, RotateCw, Split, Layers, FolderClosed, 
   HelpCircle, Heart, HeartCrack, Sparkles, ChevronRight, FileUp,
   Camera, Printer, Table, Presentation, Grid, Scissors,
   Edit3, ShieldAlert, Eye, Settings, FileSearch, ArrowLeftRight, Activity,
@@ -164,7 +166,7 @@ function HomeInner() {
       name: 'JPG to PDF', 
       desc: 'Convert images (JPG, PNG) to PDF in seconds. Easily adjust orientation, sizing, and margins.',
       category: 'Convert',
-      icon: <Image className="w-8 h-8 text-red-500" />
+      icon: <ImageIcon className="w-8 h-8 text-red-500" />
     },
     { 
       id: 'word-to-pdf', 
@@ -466,11 +468,15 @@ function HomeInner() {
             <div className="max-w-6xl mx-auto px-8 py-12">
               <div className="grid grid-cols-2 md:grid-cols-4 gap-8">
                 <div className="col-span-2 md:col-span-1">
-                  <span className="text-lg font-black tracking-tight">
-                    <span className="text-white">D</span>
-                    <span className="text-red-500">♥</span>
-                    <span className="text-white">cify</span>
-                  </span>
+                  <Link href="/" className="inline-block select-none bg-white p-2 rounded-xl">
+                    <Image 
+                      src="/logo.jpg" 
+                      alt="Docify Logo" 
+                      width={140} 
+                      height={46} 
+                      className="h-8 w-auto object-contain"
+                    />
+                  </Link>
                   <p className="mt-3 text-xs text-slate-500 leading-relaxed max-w-xs">
                     Every tool you need to work with PDFs. 100% free, client-side processing with no file uploads.
                   </p>

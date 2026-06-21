@@ -14,6 +14,7 @@ import {
   pdfToPdfa, cropPdf, fillPdfForms, redactPdf,
   extractTextFromOfficeFile
 } from '@/lib/pdfProcessor';
+import { processViaILovePDF } from '@/lib/ilovepdf-client';
 import confetti from 'canvas-confetti';
 
 interface PdfWorkspaceProps {
@@ -444,112 +445,25 @@ export default function PdfWorkspace({ toolId, toolName, onBack }: PdfWorkspaceP
           newName = `${files[0].name.split('.')[0]}_converted.pdf`;
           break;
         }
-        case 'pdf-to-word': {
-          const buffer = await fileToArrayBuffer(files[0]);
-          const { PDFDocument } = await import('pdf-lib');
-          const pdfDoc = await PDFDocument.load(buffer);
-          const total = pdfDoc.getPageCount();
-          const title = pdfDoc.getTitle() || files[0].name;
-          const author = pdfDoc.getAuthor() || 'Unknown';
-          const resultText = `Document: ${files[0].name}\nTitle: ${title}\nAuthor: ${author}\nTotal Pages: ${total}\nGenerated: ${new Date().toLocaleString()}\n\n=== EXTRACTED TEXT CONTENT ===\n\n[Full text extraction from PDF requires a server-side rendering engine.\nThe document "${files[0].name}" has ${total} page(s).\nFor complete text extraction, consider using an OCR tool or server-based PDF parser.]`;
-          
-          const textBlob = new Blob([resultText], { type: 'application/msword' });
-          const url = URL.createObjectURL(textBlob);
+        case 'pdf-to-word':
+        case 'pdf-to-excel':
+        case 'pdf-to-ppt':
+        case 'pdf-to-jpg':
+        case 'ocr':
+        case 'ai-summarizer': {
+          const result = await processViaILovePDF(toolId, files);
+          const url = URL.createObjectURL(result.blob);
           setResultBlobUrl(url);
-          setResultFileName(`${files[0].name.replace('.pdf', '')}_extracted.doc`);
+          setResultFileName(result.fileName);
           setIsSuccess(true);
           setIsProcessing(false);
-          
           const tempLink = document.createElement('a');
           tempLink.href = url;
-          tempLink.setAttribute('download', `${files[0].name.replace('.pdf', '')}_extracted.doc`);
+          tempLink.setAttribute('download', result.fileName);
           document.body.appendChild(tempLink);
           tempLink.click();
           document.body.removeChild(tempLink);
-          
           confetti({ particleCount: 80, spread: 60 });
-          return;
-        }
-        case 'pdf-to-excel': {
-          const buffer = await fileToArrayBuffer(files[0]);
-          const { PDFDocument } = await import('pdf-lib');
-          const pdfDoc = await PDFDocument.load(buffer);
-          const total = pdfDoc.getPageCount();
-          const title = pdfDoc.getTitle() || files[0].name;
-          const author = pdfDoc.getAuthor() || 'N/A';
-          const csvContent = [
-            `"Document Name","${files[0].name}"`,
-            `"Title","${title}"`,
-            `"Author","${author}"`,
-            `"Total Pages",${total}`,
-            `"Report Date","${new Date().toLocaleDateString()}"`,
-            `"File Size","${(files[0].size / 1024).toFixed(1)} KB"`,
-            '',
-            '"Page Index","Metadata"',
-            ...Array.from({ length: total }, (_, i) => `"Page ${i + 1}","[Text extraction requires server-side rendering]"`)
-          ].join('\n');
-          
-          const csvBlob = new Blob([csvContent], { type: 'text/csv' });
-          const url = URL.createObjectURL(csvBlob);
-          setResultBlobUrl(url);
-          setResultFileName(`${files[0].name.replace('.pdf', '')}_spreadsheet.csv`);
-          setIsSuccess(true);
-          setIsProcessing(false);
-          
-          const tempLink = document.createElement('a');
-          tempLink.href = url;
-          tempLink.setAttribute('download', `${files[0].name.replace('.pdf', '')}_spreadsheet.csv`);
-          document.body.appendChild(tempLink);
-          tempLink.click();
-          document.body.removeChild(tempLink);
-          
-          confetti({ particleCount: 85, spread: 65 });
-          return;
-        }
-        case 'pdf-to-ppt': {
-          const buffer = await fileToArrayBuffer(files[0]);
-          const { PDFDocument } = await import('pdf-lib');
-          const pdfDoc = await PDFDocument.load(buffer);
-          const total = pdfDoc.getPageCount();
-          const pages = Array.from({ length: total }, (_, i) => `Slide ${i + 1}: Page ${i + 1} of ${files[0].name}`).join('\n');
-          const resultText = `Presentation Outline: ${files[0].name}\nTotal Slides: ${total}\nExport Date: ${new Date().toLocaleString()}\n\n${pages}\n\n[Note: Full PDF-to-PPT conversion with formatting requires server-side processing.\nThis outline provides the page structure of your document.]`;
-          const pptBlob = new Blob([resultText], { type: 'application/vnd.ms-powerpoint' });
-          const url = URL.createObjectURL(pptBlob);
-          setResultBlobUrl(url);
-          setResultFileName(`${files[0].name.replace('.pdf', '')}_presentation.ppt`);
-          setIsSuccess(true);
-          setIsProcessing(false);
-          
-          const tempLink = document.createElement('a');
-          tempLink.href = url;
-          tempLink.setAttribute('download', `${files[0].name.replace('.pdf', '')}_presentation.ppt`);
-          document.body.appendChild(tempLink);
-          tempLink.click();
-          document.body.removeChild(tempLink);
-          
-          confetti({ particleCount: 70, spread: 50 });
-          return;
-        }
-        case 'pdf-to-jpg': {
-          const buffer = await fileToArrayBuffer(files[0]);
-          const { PDFDocument } = await import('pdf-lib');
-          const pdfDoc = await PDFDocument.load(buffer);
-          const total = pdfDoc.getPageCount();
-          const infoText = `PDF to JPG Export\nDocument: ${files[0].name}\nPages: ${total}\n\nTo convert PDF pages to actual JPG images, a server-side rendering engine is required.\nEach page would be rendered as a separate high-quality JPEG image.\n\nPage list:\n${Array.from({ length: total }, (_, i) => `${i + 1}. ${files[0].name} - Page ${i + 1}`).join('\n')}\n\nGenerated: ${new Date().toLocaleString()}`;
-          const imgBlob = new Blob([infoText], { type: 'text/plain' });
-          const url = URL.createObjectURL(imgBlob);
-          setResultBlobUrl(url);
-          setResultFileName(`${files[0].name.replace('.pdf', '')}_page_info.txt`);
-          setIsSuccess(true);
-          setIsProcessing(false);
-          
-          const tempLink = document.createElement('a');
-          tempLink.href = url;
-          tempLink.setAttribute('download', `${files[0].name.replace('.pdf', '')}_page_info.txt`);
-          document.body.appendChild(tempLink);
-          tempLink.click();
-          document.body.removeChild(tempLink);
-          confetti({ particleCount: 70, spread: 50 });
           return;
         }
         case 'edit': {
@@ -652,26 +566,19 @@ export default function PdfWorkspace({ toolId, toolName, onBack }: PdfWorkspaceP
           break;
         }
         case 'ocr': {
-          const buffer = await fileToArrayBuffer(files[0]);
-          const { PDFDocument } = await import('pdf-lib');
-          const pdfDoc = await PDFDocument.load(buffer);
-          const total = pdfDoc.getPageCount();
-          const title = pdfDoc.getTitle() || files[0].name;
-          const resultText = `OCR Text Recognition Result\n===========================\nDocument: ${files[0].name}\nTitle: ${title}\nPages: ${total}\nDate: ${new Date().toLocaleString()}\n\n[Text Recognition Summary]\nThe document "${files[0].name}" contains ${total} page(s).\nFull OCR text extraction with character recognition requires Tesseract.js or a server-side OCR engine.\n\nPage Overview:\n${Array.from({ length: total }, (_, i) => `  Page ${i + 1}: [Scanned content - OCR requires additional processing]`).join('\n')}`;
-          const txtBlob = new Blob([resultText], { type: 'text/plain' });
-          const url = URL.createObjectURL(txtBlob);
+          const result = await processViaILovePDF(toolId, files);
+          const url = URL.createObjectURL(result.blob);
           setResultBlobUrl(url);
-          setResultFileName(`${files[0].name.replace('.pdf', '')}_ocr.txt`);
+          setResultFileName(result.fileName);
           setIsSuccess(true);
           setIsProcessing(false);
-          
           const tempLink = document.createElement('a');
           tempLink.href = url;
-          tempLink.setAttribute('download', `${files[0].name.replace('.pdf', '')}_ocr.txt`);
+          tempLink.setAttribute('download', result.fileName);
           document.body.appendChild(tempLink);
           tempLink.click();
           document.body.removeChild(tempLink);
-          confetti({ particleCount: 70, spread: 50 });
+          confetti({ particleCount: 80, spread: 60 });
           return;
         }
         case 'remove-pages': {
@@ -726,29 +633,16 @@ export default function PdfWorkspace({ toolId, toolName, onBack }: PdfWorkspaceP
           break;
         }
         case 'ai-summarizer': {
-          const buffer = await fileToArrayBuffer(files[0]);
-          const { PDFDocument } = await import('pdf-lib');
-          const pdfDoc = await PDFDocument.load(buffer);
-          const total = pdfDoc.getPageCount();
-          const pageTitle = files[0].name.replace('.pdf', '');
-          const title = pdfDoc.getTitle() || pageTitle;
-          const author = pdfDoc.getAuthor() || 'Unknown';
-          const subject = pdfDoc.getSubject() || 'Not specified';
-          let reportContent = '';
-          if (summaryLength === 'brief') {
-            reportContent = `# AI Document Summary: ${title}\n\n## Overview\n- **File**: ${files[0].name}\n- **Title**: ${title}\n- **Author**: ${author}\n- **Subject**: ${subject}\n- **Pages**: ${total}\n- **File Size**: ${(files[0].size / 1024).toFixed(1)} KB\n\n## Key Takeaways\n- The document contains ${total} page(s) of content.\n- ${author !== 'Unknown' ? `Authored by ${author}.` : 'The author is not specified.'}\n- Full AI-powered content analysis requires server-side NLP processing.\n- For detailed summarization, consider extracting text and using a dedicated AI service.`;
-          } else {
-            reportContent = `# Detailed AI Analysis Report: ${title}\n\n## Executive Summary\nA comprehensive analysis of "${files[0].name}" (${total} pages, ${(files[0].size / 1024).toFixed(1)} KB) was completed locally using pdf-lib.\n\n## Document Metadata\n- **Title**: ${title}\n- **Author**: ${author}\n- **Subject**: ${subject}\n- **Total Pages**: ${total}\n- **File Size**: ${(files[0].size / 1024).toFixed(1)} KB\n\n## Structure Analysis\n- The document has ${total} page(s) in its internal structure.\n- PDF cross-reference table and catalog are valid.\n\n## Core Findings\n1. **Document Integrity**: The file structure passes basic validation checks.\n2. **Metadata Present**: ${title !== pageTitle ? 'Document title is set.' : 'No custom title metadata found.'}\n3. **Page Count**: ${total} page(s) processed.\n\n## Recommended Actions\n- For full text analysis, use a server-side NLP service.\n- For content extraction, use the PDF to Word or PDF to Text tools.\n- For layout analysis, consider a dedicated PDF parsing library.`;
-          }
-          const txtBlob = new Blob([reportContent], { type: 'text/markdown' });
-          const url = URL.createObjectURL(txtBlob);
+          const summaryOpts = { output_format: summaryLength === 'brief' ? 'pdf' : 'pdf' };
+          const result = await processViaILovePDF(toolId, files, summaryOpts);
+          const url = URL.createObjectURL(result.blob);
           setResultBlobUrl(url);
-          setResultFileName(`${pageTitle}_ai_summary.md`);
+          setResultFileName(result.fileName);
           setIsSuccess(true);
           setIsProcessing(false);
           const tempLink = document.createElement('a');
           tempLink.href = url;
-          tempLink.setAttribute('download', `${pageTitle}_ai_summary.md`);
+          tempLink.setAttribute('download', result.fileName);
           document.body.appendChild(tempLink);
           tempLink.click();
           document.body.removeChild(tempLink);
