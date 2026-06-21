@@ -464,7 +464,7 @@ function HomeInner() {
           </main>
 
           {/* Footer */}
-          <footer className="bg-[#1a1a1a] border-t border-white/5 text-slate-400 shrink-0">
+          <footer className="bg-white border-t border-slate-200 text-slate-600 shrink-0">
             <div className="max-w-6xl mx-auto px-8 py-12">
               <div className="grid grid-cols-2 md:grid-cols-4 gap-8">
                 <div className="col-span-2 md:col-span-1">
@@ -491,7 +491,7 @@ function HomeInner() {
                           const map: Record<string, string> = { 'merge-pdf': 'merge', 'split-pdf': 'split', 'compress-pdf': 'compress', 'rotate-pdf': 'rotate' };
                           const slug = map[tool] || tool;
                           window.location.href = `/?tool=${slug}`;
-                        }} className="text-xs text-slate-500 hover:text-white transition-colors">{t}</button>
+                        }} className="text-xs text-slate-500 hover:text-red-600 transition-colors">{t}</button>
                       </li>
                     ))}
                   </ul>
@@ -504,7 +504,7 @@ function HomeInner() {
                         <button onClick={() => {
                           const slug = t.toLowerCase().replace(/\s+/g, '-').replace('jpg', 'jpg');
                           window.location.href = `/?tool=${slug}`;
-                        }} className="text-xs text-slate-500 hover:text-white transition-colors">{t}</button>
+                        }} className="text-xs text-slate-500 hover:text-red-600 transition-colors">{t}</button>
                       </li>
                     ))}
                   </ul>
@@ -514,17 +514,17 @@ function HomeInner() {
                   <ul className="space-y-2">
                     {['Protect PDF', 'Unlock PDF', 'Sign PDF', 'Redact PDF'].map(t => (
                       <li key={t}>
-                        <button onClick={() => window.location.href = `/?tool=${t.toLowerCase().replace(/\s/g, '-')}`} className="text-xs text-slate-500 hover:text-white transition-colors">{t}</button>
+                        <button onClick={() => window.location.href = `/?page=${t.toLowerCase().replace(/\s/g, '-')}`} className="text-xs text-slate-500 hover:text-red-600 transition-colors">{t}</button>
                       </li>
                     ))}
                   </ul>
                 </div>
               </div>
-              <div className="mt-10 pt-6 border-t border-white/5 flex flex-col sm:flex-row items-center justify-between gap-4">
-                <p className="text-[10px] text-slate-600">
+              <div className="mt-10 pt-6 border-t border-slate-200 flex flex-col sm:flex-row items-center justify-between gap-4">
+                <p className="text-[10px] text-slate-500">
                   All PDF modifications executed locally via pdf-lib. No files uploaded to any server.
                 </p>
-                <p className="flex items-center gap-1.5 text-[10px] text-slate-600">
+                <p className="flex items-center gap-1.5 text-[10px] text-slate-500">
                   Made with <Heart className="w-3 h-3 text-red-500 fill-red-500" /> for secure document workflows
                 </p>
               </div>
