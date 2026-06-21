@@ -1,36 +1,86 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Docify
+
+> Every PDF tool you need, in one place. 100% free, client-side processing — no file uploads.
+
+Docify is a privacy-first, browser-based PDF utility suite. Merge, split, compress, convert, encrypt, annotate, and more — all processed locally using `pdf-lib` and `pdfjs-dist`, with optional Groq/Gemini AI integration for summarization and translation.
+
+## Features
+
+### Organize
+
+Merge, Split, Reorder, Rotate, Repair, Remove/Extract Pages, Page Numbers, Add Blank Pages
+
+### Convert
+
+- **To PDF:** JPG, Word (DOCX), Excel (XLSX), PPT, HTML
+- **From PDF:** JPG, Word, Excel, PPT, PDF/A, Markdown, TXT
+- **Validate:** PDF/A conformance checking
+
+### Security & Optimize
+
+Compress, Watermark, Crop, Encrypt/Decrypt, Sign, Redact, Fill Forms, Flatten, Edit Metadata, Header & Footer, Compare, Scan to PDF, OCR
+
+### AI-Powered
+
+- **AI Summarizer** — Generate document summaries via Groq / Gemini
+- **Translate PDF** — Extract and translate text into 6+ languages
+
+### Client-Side First
+
+Everything runs in your browser. Your files never leave your machine. When API keys are configured, advanced features like OCR and certain conversions are available — otherwise, every tool falls back to pure client-side processing.
+
+## Architecture
+
+```
+app/
+  page.tsx           — Tool definitions, grid dashboard, footer
+  api/
+    ai/route.ts      — Groq → Gemini fallback for AI features
+components/
+  PdfWorkspace.tsx   — Main workspace with all tool processing
+lib/
+  pdfProcessor.ts    — Client-side pdf-lib functions (merge, split, rotate, etc.)
+  pdf-client.ts      — Client-side pdfjs-dist wrapper (text extraction, page render)
+  ai-client.ts       — Fetch wrapper for /api/ai
+```
 
 ## Getting Started
 
-First, run the development server:
-
 ```bash
+npm install
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Open [http://localhost:3000](http://localhost:3000).
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+### Optional: AI API Keys
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+Set these in `.env.local` for AI Summarizer and Translate features:
 
-## Learn More
+```env
+GROQ_API_KEY=...
+GEMINI_API_KEY=...
+```
 
-To learn more about Next.js, take a look at the following resources:
+Without them, AI features fall back to client-side processing.
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## Tech Stack
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+- **Framework:** Next.js 16 (App Router, Turbopack)
+- **UI:** React 19, Tailwind CSS 4, Lucide Icons
+- **PDF:** pdf-lib, pdfjs-dist
+- **AI:** Groq, Gemini
+- **Build:** TypeScript, ESLint
 
-## Deploy on Vercel
+## Deployment
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+```bash
+npm run build
+npm start
+```
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+Optimized for Vercel — zero-config deployment.
+
+---
+
+Made by **Shreeharsh**
