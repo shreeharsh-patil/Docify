@@ -203,7 +203,7 @@ function HomeInner() {
       name: 'PDF to JPG', 
       desc: 'Extract all images contained within a PDF or convert each page to a JPG image.',
       category: 'Convert',
-      icon: <Image className="w-8 h-8 text-red-500" />
+      icon: <ImageIcon className="w-8 h-8 text-red-500" />
     },
     { 
       id: 'pdf-to-word', 
