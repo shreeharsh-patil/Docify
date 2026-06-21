@@ -25,6 +25,7 @@ export default function Home() {
   const [activeToolName, setActiveToolName] = useState('');
   const [authMode, setAuthMode] = useState<'login' | 'signup' | null>(null);
   const [userEmail, setUserEmail] = useState<string | null>(null);
+  const [selectedCategory, setSelectedCategory] = useState<'All' | 'Organize' | 'Convert' | 'Optimize' | 'Security'>('All');
 
   useEffect(() => {
     const saved = localStorage.getItem('docify_user_email');
@@ -278,7 +279,7 @@ export default function Home() {
   };
 
   return (
-    <div className={`flex flex-col flex-1 bg-slate-50 text-slate-800 font-sans select-none ${
+    <div className={`flex flex-col flex-1 bg-slate-50 text-slate-800 font-sans select-none relative overflow-x-hidden ${
       activeTool ? 'h-screen overflow-hidden' : 'min-h-screen'
     }`}>
       {activeTool ? (
@@ -289,6 +290,9 @@ export default function Home() {
         />
       ) : (
         <>
+          {/* Subtle Background Radial Gradients */}
+          <div className="absolute top-0 left-1/2 -translate-x-1/2 w-full max-w-7xl h-[450px] bg-[radial-gradient(ellipse_at_top,rgba(239,68,68,0.06),transparent_60%)] pointer-events-none -z-10" />
+
           {/* Header Dashboard Nav */}
           <header className="h-16 bg-white border-b border-slate-200 px-8 flex items-center justify-between shrink-0 shadow-sm sticky top-0 z-50">
             <div className="flex items-center gap-6">
@@ -368,44 +372,93 @@ export default function Home() {
           </section>
 
           {/* Tools Dashboard Grid */}
-          <main className="flex-1 overflow-y-auto px-8 pb-16 max-w-6xl mx-auto w-full">
-            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
-              {tools.map((tool, idx) => (
-                <div
-                  key={tool.id}
-                  onClick={() => handleSelectTool(tool.id, tool.name)}
-                  className="bg-white border border-slate-200/80 rounded-2xl p-6 shadow-sm cursor-pointer flex flex-col justify-between h-[210px] relative group tool-card animate-slide-up"
-                  style={{ animationDelay: `${idx * 25}ms`, opacity: 0, animationFillMode: 'forwards' }}
+          <main className="flex-1 overflow-y-auto px-8 pb-16 max-w-6xl mx-auto w-full animate-fade-in">
+            {/* Category Filter Tabs */}
+            <div className="flex flex-wrap items-center justify-center gap-2 mb-8 animate-fade-in" style={{ animationDelay: '100ms', opacity: 0, animationFillMode: 'forwards' }}>
+              {(['All', 'Organize', 'Convert', 'Optimize', 'Security'] as const).map((cat) => (
+                <button
+                  key={cat}
+                  onClick={() => setSelectedCategory(cat)}
+                  className={`text-xs font-bold px-4 py-2.5 rounded-full transition-all duration-200 cursor-pointer ${
+                    selectedCategory === cat
+                      ? 'bg-red-600 text-white shadow-md shadow-red-600/15'
+                      : 'bg-white border border-slate-200 text-slate-600 hover:border-slate-350 hover:text-slate-900 hover:shadow-sm'
+                  }`}
                 >
-                  <div>
-                    {/* Header: Icon + Category Badge */}
-                    <div className="flex items-start justify-between">
-                      <div className="rounded-2xl bg-red-50 p-3.5 border border-red-100/50 group-hover:bg-red-600 group-hover:border-red-600 transition-all duration-300">
-                        {React.cloneElement(tool.icon as React.ReactElement<any>, {
-                          className: 'w-6 h-6 text-red-600 group-hover:text-white transition-all duration-300'
-                        } as any)}
+                  {cat === 'All' ? 'All Tools' : cat}
+                </button>
+              ))}
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
+              {tools
+                .filter(t => selectedCategory === 'All' || t.category === selectedCategory)
+                .map((tool, idx) => (
+                  <div
+                    key={tool.id}
+                    onClick={() => handleSelectTool(tool.id, tool.name)}
+                    className={`bg-white border rounded-2xl p-6 shadow-sm cursor-pointer flex flex-col justify-between h-[210px] relative group tool-card animate-slide-up ${
+                      tool.category === 'Organize' ? 'hover:border-blue-500/40 hover:shadow-blue-500/5' :
+                      tool.category === 'Convert' ? 'hover:border-purple-500/40 hover:shadow-purple-500/5' :
+                      tool.category === 'Optimize' ? 'hover:border-amber-500/40 hover:shadow-amber-500/5' :
+                      'hover:border-rose-500/40 hover:shadow-rose-500/5'
+                    }`}
+                    style={{ animationDelay: `${idx * 25}ms`, opacity: 0, animationFillMode: 'forwards' }}
+                  >
+                    <div>
+                      {/* Header: Icon + Category Badge */}
+                      <div className="flex items-start justify-between">
+                        <div className={`rounded-2xl p-3.5 border transition-all duration-300 ${
+                          tool.category === 'Organize' ? 'bg-blue-50/80 border-blue-100 group-hover:bg-blue-600 group-hover:border-blue-600' :
+                          tool.category === 'Convert' ? 'bg-purple-50/80 border-purple-100 group-hover:bg-purple-600 group-hover:border-purple-600' :
+                          tool.category === 'Optimize' ? 'bg-amber-50/80 border-amber-100 group-hover:bg-amber-600 group-hover:border-amber-600' :
+                          'bg-red-50/80 border-red-100 group-hover:bg-red-600 group-hover:border-red-600'
+                        }`}>
+                          {React.cloneElement(tool.icon as React.ReactElement<any>, {
+                            className: `w-6 h-6 transition-all duration-300 ${
+                              tool.category === 'Organize' ? 'text-blue-600 group-hover:text-white' :
+                              tool.category === 'Convert' ? 'text-purple-600 group-hover:text-white' :
+                              tool.category === 'Optimize' ? 'text-amber-600 group-hover:text-white' :
+                              'text-red-600 group-hover:text-white'
+                            }`
+                          })}
+                        </div>
+                        <span className={`text-[9px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-md border ${
+                          tool.category === 'Organize' ? 'bg-blue-50 text-blue-600 border-blue-100/50' :
+                          tool.category === 'Convert' ? 'bg-purple-50 text-purple-600 border-purple-100/50' :
+                          tool.category === 'Optimize' ? 'bg-amber-50 text-amber-600 border-amber-100/50' :
+                          'bg-rose-50 text-rose-600 border-rose-100/50'
+                        }`}>
+                          {tool.category}
+                        </span>
                       </div>
-                      <span className="text-[9px] font-bold uppercase tracking-wider text-slate-400 bg-slate-100 px-2 py-0.5 rounded-md">
-                        {tool.category}
-                      </span>
+
+                      {/* Tool details */}
+                      <h3 className={`font-extrabold text-slate-900 text-base mt-4 transition-colors ${
+                        tool.category === 'Organize' ? 'group-hover:text-blue-600' :
+                        tool.category === 'Convert' ? 'group-hover:text-purple-600' :
+                        tool.category === 'Optimize' ? 'group-hover:text-amber-600' :
+                        'group-hover:text-red-600'
+                      }`}>
+                        {tool.name}
+                      </h3>
+                      <p className="mt-1.5 text-xs text-slate-500 leading-relaxed line-clamp-3">
+                        {tool.desc}
+                      </p>
                     </div>
 
-                    {/* Tool details */}
-                    <h3 className="font-extrabold text-slate-900 text-base mt-4 group-hover:text-red-600 transition-colors">
-                      {tool.name}
-                    </h3>
-                    <p className="mt-1.5 text-xs text-slate-500 leading-relaxed line-clamp-3">
-                      {tool.desc}
-                    </p>
+                    {/* Hover indicator link arrow */}
+                    <div className={`mt-4 flex items-center justify-end opacity-0 group-hover:opacity-100 transition-opacity ${
+                      tool.category === 'Organize' ? 'text-blue-600' :
+                      tool.category === 'Convert' ? 'text-purple-600' :
+                      tool.category === 'Optimize' ? 'text-amber-600' :
+                      'text-red-600'
+                    }`}>
+                      <span className="text-[10px] font-bold uppercase tracking-wider mr-1.5">Open tool</span>
+                      <ChevronRight className="w-4 h-4 translate-x-[-4px] group-hover:translate-x-0 transition-transform" />
+                    </div>
                   </div>
-
-                  {/* Hover indicator link arrow */}
-                  <div className="mt-4 flex items-center justify-end text-red-600 opacity-0 group-hover:opacity-100 transition-opacity">
-                    <span className="text-[10px] font-bold uppercase tracking-wider mr-1.5">Open tool</span>
-                    <ChevronRight className="w-4 h-4 translate-x-[-4px] group-hover:translate-x-0 transition-transform" />
-                  </div>
-                </div>
-              ))}
+                ))}
             </div>
           </main>
 

@@ -8,13 +8,17 @@
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
+  --font-sans: var(--font-body), system-ui, sans-serif;
   --font-mono: var(--font-geist-mono);
+  --font-headings: var(--font-headings), system-ui, sans-serif;
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
+  font-family: var(--font-sans) !important;
+}
+
+h1, h2, h3, h4, h5, h6, .font-heading {
+  font-family: var(--font-headings) !important;
 }
 
 /* Custom Scrollbar Styles for Dark Theme */
