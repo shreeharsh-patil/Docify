@@ -79,7 +79,10 @@ function HomeInner() {
     'forms':         { id: 'forms',        name: 'Fill PDF Forms' },
     'redact':        { id: 'redact',       name: 'Redact PDF' },
     'compare':       { id: 'compare',      name: 'Compare PDF' },
-    'pdf-to-pdfa':   { id: 'pdf-to-pdfa',   name: 'PDF to PDF/A' },
+    'pdf-to-pdfa':     { id: 'pdf-to-pdfa',     name: 'PDF to PDF/A' },
+    'pdf-to-markdown': { id: 'pdf-to-markdown', name: 'PDF to Markdown' },
+    'validate-pdfa':   { id: 'validate-pdfa',   name: 'Validate PDF/A' },
+    'metadata':        { id: 'metadata',        name: 'Edit Metadata' },
   };
 
   // Open tool from ?tool= query param
@@ -233,6 +236,20 @@ function HomeInner() {
       category: 'Convert',
       icon: <FileText className="w-8 h-8 text-red-500" />
     },
+    { 
+      id: 'pdf-to-markdown', 
+      name: 'PDF to Markdown', 
+      desc: 'Convert your PDF documents into clean Markdown format for documentation and note-taking.',
+      category: 'Convert',
+      icon: <FileText className="w-8 h-8 text-red-500" />
+    },
+    { 
+      id: 'validate-pdfa', 
+      name: 'Validate PDF/A', 
+      desc: 'Check if your PDF file meets PDF/A archival conformance standards.',
+      category: 'Convert',
+      icon: <ShieldAlert className="w-8 h-8 text-red-500" />
+    },
 
     // 4. Security & Optimization
     { 
@@ -248,6 +265,13 @@ function HomeInner() {
       desc: 'Stamp text over your PDF in seconds. Choose typography, opacity and position.',
       category: 'Optimize',
       icon: <Type className="w-8 h-8 text-red-500" />
+    },
+    { 
+      id: 'metadata', 
+      name: 'Edit Metadata', 
+      desc: 'View and edit PDF document properties like title, author, subject, and keywords.',
+      category: 'Optimize',
+      icon: <Edit className="w-8 h-8 text-red-500" />
     },
     { 
       id: 'crop', 

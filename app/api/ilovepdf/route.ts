@@ -46,7 +46,9 @@ export async function POST(req: NextRequest) {
       .replace('remove-pages', 'extract')
       .replace('extract-pages', 'extract')
       .replace('ai-summarizer', 'summarize')
-      .replace('redact', 'editpdf');
+      .replace('redact', 'editpdf')
+      .replace('pdf-to-markdown', 'pdfmarkdown')
+      .replace('validate-pdfa', 'validatepdfa');
 
     const fileBuffers = await Promise.all(
       filesRaw.map(async (f) => ({

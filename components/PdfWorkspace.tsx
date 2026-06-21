@@ -97,6 +97,10 @@ export default function PdfWorkspace({ toolId, toolName, onBack }: PdfWorkspaceP
   const [formNotes, setFormNotes] = useState('Filled client-side using Docify Forms Suite.');
   const [summaryLength, setSummaryLength] = useState<'brief' | 'detailed'>('brief');
   const [translateLang, setTranslateLang] = useState('Spanish');
+  const [metaTitle, setMetaTitle] = useState('');
+  const [metaAuthor, setMetaAuthor] = useState('');
+  const [metaSubject, setMetaSubject] = useState('');
+  const [metaKeywords, setMetaKeywords] = useState('');
 
   // Initialize Organize indexes when a file is uploaded
   useEffect(() => {
@@ -686,6 +690,35 @@ export default function PdfWorkspace({ toolId, toolName, onBack }: PdfWorkspaceP
           const buffer = await fileToArrayBuffer(files[0]);
           outputBytes = await pdfToPdfa(buffer, pdfaStandard);
           newName = `${files[0].name.replace('.pdf', '')}_standardized_pdfa.pdf`;
+          break;
+        }
+        case 'pdf-to-markdown':
+        case 'validate-pdfa': {
+          const result = await processViaILovePDF(toolId, files);
+          const url = URL.createObjectURL(result.blob);
+          setResultBlobUrl(url);
+          setResultFileName(result.fileName);
+          setIsSuccess(true);
+          setIsProcessing(false);
+          const tempLink = document.createElement('a');
+          tempLink.href = url;
+          tempLink.setAttribute('download', result.fileName);
+          document.body.appendChild(tempLink);
+          tempLink.click();
+          document.body.removeChild(tempLink);
+          confetti({ particleCount: 80, spread: 60 });
+          return;
+        }
+        case 'metadata': {
+          const buffer = await fileToArrayBuffer(files[0]);
+          const { PDFDocument } = await import('pdf-lib');
+          const pdfDoc = await PDFDocument.load(buffer);
+          pdfDoc.setTitle(metaTitle);
+          pdfDoc.setAuthor(metaAuthor);
+          pdfDoc.setSubject(metaSubject);
+          pdfDoc.setKeywords(metaKeywords.split(',').map(k => k.trim()));
+          outputBytes = await pdfDoc.save();
+          newName = `${files[0].name.replace('.pdf', '')}_metadata_updated.pdf`;
           break;
         }
         case 'crop': {
@@ -1729,6 +1762,46 @@ export default function PdfWorkspace({ toolId, toolName, onBack }: PdfWorkspaceP
                         <option value="Hindi">Hindi (हिन्दी)</option>
                         <option value="Japanese">Japanese (日本語)</option>
                       </select>
+                    </div>
+                  </div>
+                )}
+
+                {/* 25. Validate PDF/A options */}
+                {toolId === 'validate-pdfa' && (
+                  <div className="space-y-3 bg-red-50/40 p-4 border border-red-100 rounded-xl text-xs text-slate-500">
+                    <p className="font-bold text-slate-800">PDF/A Validation:</p>
+                    <p>• Checks if your PDF meets PDF/A-1b or PDF/A-2b archival standards.</p>
+                    <p>• Returns a validation report with pass/fail status.</p>
+                  </div>
+                )}
+
+                {/* 26. PDF to Markdown options */}
+                {toolId === 'pdf-to-markdown' && (
+                  <div className="space-y-3 bg-red-50/40 p-4 border border-red-100 rounded-xl text-xs text-slate-500">
+                    <p className="font-bold text-slate-800">Markdown Export:</p>
+                    <p>• Converts PDF content to clean Markdown format.</p>
+                    <p>• Ideal for documentation, note-taking, and LLM ingestion.</p>
+                  </div>
+                )}
+
+                {/* 27. PDF Metadata Editor options */}
+                {toolId === 'metadata' && (
+                  <div className="space-y-4">
+                    <div>
+                      <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block mb-1">Title</label>
+                      <input type="text" value={metaTitle} onChange={e => setMetaTitle(e.target.value)} placeholder="Document Title" className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-xs focus:outline-none focus:border-red-500" />
+                    </div>
+                    <div>
+                      <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block mb-1">Author</label>
+                      <input type="text" value={metaAuthor} onChange={e => setMetaAuthor(e.target.value)} placeholder="Author Name" className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-xs focus:outline-none focus:border-red-500" />
+                    </div>
+                    <div>
+                      <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block mb-1">Subject</label>
+                      <input type="text" value={metaSubject} onChange={e => setMetaSubject(e.target.value)} placeholder="Document Subject" className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-xs focus:outline-none focus:border-red-500" />
+                    </div>
+                    <div>
+                      <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block mb-1">Keywords</label>
+                      <input type="text" value={metaKeywords} onChange={e => setMetaKeywords(e.target.value)} placeholder="keyword1, keyword2" className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-xs focus:outline-none focus:border-red-500" />
                     </div>
                   </div>
                 )}
