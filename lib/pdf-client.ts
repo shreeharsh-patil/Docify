@@ -1,14 +1,15 @@
-import * as pdfjsLib from 'pdfjs-dist';
-
-// Set worker path for pdfjs-dist
-if (typeof window !== 'undefined') {
-  pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
-    'pdfjs-dist/build/pdf.worker.min.mjs',
-    import.meta.url
-  ).toString();
+async function getPdfjs() {
+  return await import('pdfjs-dist');
 }
 
 async function getPdfDoc(buffer: ArrayBuffer) {
+  const pdfjsLib = await getPdfjs();
+  if (typeof window !== 'undefined' && !pdfjsLib.GlobalWorkerOptions.workerSrc) {
+    pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
+      'pdfjs-dist/build/pdf.worker.min.mjs',
+      import.meta.url
+    ).toString();
+  }
   const loadingTask = pdfjsLib.getDocument({ data: buffer });
   return await loadingTask.promise;
 }
@@ -36,8 +37,7 @@ export async function renderPdfPageToCanvas(
   const canvas = document.createElement('canvas');
   canvas.width = viewport.width;
   canvas.height = viewport.height;
-  const ctx = canvas.getContext('2d')!;
-  await page.render({ canvasContext: ctx, viewport, canvas }).promise;
+  await page.render({ canvas, viewport }).promise;
   return canvas;
 }
 
@@ -64,17 +64,6 @@ export async function getPdfPageInfos(buffer: ArrayBuffer): Promise<PageInfo[]> 
     });
   }
   return infos;
-}
-
-export async function pdfToJpgBlob(
-  buffer: ArrayBuffer,
-  pageNum: number = 1,
-  quality: number = 0.8
-): Promise<Blob> {
-  const canvas = await renderPdfPageToCanvas(buffer, pageNum, 2);
-  return new Promise((resolve) => {
-    canvas.toBlob((blob) => resolve(blob!), 'image/jpeg', quality);
-  });
 }
 
 export async function pdfToZipOfJpgs(buffer: ArrayBuffer): Promise<Blob> {

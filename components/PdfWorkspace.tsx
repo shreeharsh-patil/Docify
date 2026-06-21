@@ -497,10 +497,11 @@ export default function PdfWorkspace({ toolId, toolName, onBack }: PdfWorkspaceP
               const text = await extractTextFromPdf(buffer);
               const words = text.split(/\s+/).filter(Boolean).length;
               const chars = text.length;
+              const infos = await getPdfPageInfos(buffer);
               const summary = [
                 `# AI Summary: ${files[0].name}`,
                 '',
-                `**Pages**: ${(await (await getPdfDocFromBuffer(buffer)).numPages)}`,
+                `**Pages**: ${infos.length}`,
                 `**Words**: ${words}`,
                 `**Characters**: ${chars}`,
                 '',
