@@ -75,12 +75,27 @@ const megaMenuGroups = [
   },
 ];
 
-const convertDropdown = [
-  { label: "JPG to PDF",     href: "/jpg-to-pdf" },
-  { label: "WORD to PDF",    href: "/word-to-pdf" },
-  { label: "PDF to JPG",     href: "/pdf-to-jpg" },
-  { label: "PDF to WORD",    href: "/pdf-to-word" },
-  { label: "PDF to PDF/A",   href: "/pdf-to-pdfa" },
+const convertGroups = [
+  {
+    heading: "CONVERT TO PDF",
+    tools: [
+      { label: "JPG to PDF",        href: "/jpg-to-pdf",   bg: "#D69E2E", letter: "J" },
+      { label: "WORD to PDF",       href: "/word-to-pdf",  bg: "#2B6CB0", letter: "W" },
+      { label: "POWERPOINT to PDF", href: "/ppt-to-pdf",   bg: "#C05621", letter: "P" },
+      { label: "EXCEL to PDF",      href: "/excel-to-pdf", bg: "#276749", letter: "X" },
+      { label: "HTML to PDF",       href: "/html-to-pdf",  bg: "#D69E2E", letter: "H" },
+    ],
+  },
+  {
+    heading: "CONVERT FROM PDF",
+    tools: [
+      { label: "PDF to JPG",        href: "/pdf-to-jpg",   bg: "#D69E2E", letter: "J" },
+      { label: "PDF to WORD",       href: "/pdf-to-word",  bg: "#2B6CB0", letter: "W" },
+      { label: "PDF to POWERPOINT", href: "/pdf-to-ppt",   bg: "#C05621", letter: "P" },
+      { label: "PDF to EXCEL",      href: "/pdf-to-excel", bg: "#276749", letter: "X" },
+      { label: "PDF to PDF/A",      href: "/pdf-to-pdfa",  bg: "#D69E2E", letter: "A" },
+    ],
+  },
 ];
 
 function ToolBadge({ bg, letter }: { bg: string; letter: string }) {
@@ -139,30 +154,16 @@ export default function Navbar() {
               Compress PDF
             </Link>
 
-            {/* Convert PDF — simple dropdown */}
-            <div className="relative">
-              <button
-                onClick={() => { setConvertOpen(!convertOpen); setAllToolsOpen(false); }}
-                className="flex items-center gap-1 px-3.5 py-1 text-[13px] font-bold text-gray-700 hover:text-red-600 uppercase tracking-wide transition-colors whitespace-nowrap"
-              >
-                Convert PDF
-                <ChevronDown size={13} className={`transition-transform duration-150 ${convertOpen ? "rotate-180" : ""}`} />
-              </button>
-
-              {/* Simple dropdown */}
-              {convertOpen && (
-                <div className="absolute top-full left-0 mt-1 w-44 bg-white rounded-xl border border-gray-100 shadow-xl z-50">
-                  {convertDropdown.map((item) => (
-                    <Link key={item.href} href={item.href}
-                      onClick={() => setConvertOpen(false)}
-                      className="flex items-center px-4 py-2.5 text-sm text-gray-700 hover:bg-red-50 hover:text-red-600 transition-colors first:rounded-t-xl last:rounded-b-xl"
-                    >
-                      {item.label}
-                    </Link>
-                  ))}
-                </div>
-              )}
-            </div>
+            {/* Convert PDF — 2-column mega menu (anchored to header) */}
+            <button
+              onClick={() => { setConvertOpen(!convertOpen); setAllToolsOpen(false); }}
+              className={`flex items-center gap-1 px-3.5 py-1 text-[13px] font-bold uppercase tracking-wide transition-colors whitespace-nowrap ${
+                convertOpen ? "text-red-600" : "text-gray-700 hover:text-red-600"
+              }`}
+            >
+              Convert PDF
+              <ChevronDown size={13} className={`transition-transform duration-150 ${convertOpen ? "rotate-180" : ""}`} />
+            </button>
 
             {/* All PDF Tools — mega menu */}
             <button
@@ -209,7 +210,40 @@ export default function Navbar() {
         </div>
       </div>
 
-      {/* ─── MEGA MENU — full-width, anchored to header ─────────────────────── */}
+      {/* ─── CONVERT PDF MEGA MENU — 2 columns, full-width ───────────────────── */}
+      {convertOpen && (
+        <div className="absolute left-0 right-0 top-full bg-white border-b border-gray-200 shadow-2xl z-50" data-navbar>
+          <div className="max-w-screen-xl mx-auto px-6 py-6">
+            <div className="grid grid-cols-2 gap-8">
+              {convertGroups.map((group) => (
+                <div key={group.heading}>
+                  <p className="text-[10px] font-bold tracking-widest text-gray-400 uppercase mb-4">
+                    {group.heading}
+                  </p>
+                  <ul className="space-y-3">
+                    {group.tools.map((tool) => (
+                      <li key={tool.href}>
+                        <Link
+                          href={tool.href}
+                          onClick={() => setConvertOpen(false)}
+                          className="flex items-center gap-2.5 group"
+                        >
+                          <ToolBadge bg={tool.bg} letter={tool.letter} />
+                          <span className="text-[14px] text-gray-700 group-hover:text-red-600 transition-colors font-medium">
+                            {tool.label}
+                          </span>
+                        </Link>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ─── ALL PDF TOOLS MEGA MENU — full-width, 7 columns ─────────────────── */}
       {allToolsOpen && (
         <div
           className="absolute left-0 right-0 top-full bg-white border-b border-gray-200 shadow-2xl z-50"
