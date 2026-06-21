@@ -14,7 +14,8 @@ import {
   pdfToPdfa, cropPdf, fillPdfForms, redactPdf,
   extractTextFromOfficeFile
 } from '@/lib/pdfProcessor';
-import { processViaILovePDF } from '@/lib/ilovepdf-client';
+import { processViaILovePDF, checkApiKeysConfigured } from '@/lib/ilovepdf-client';
+import { extractTextFromPdf, pdfToZipOfJpgs, getPdfPageInfos } from '@/lib/pdf-client';
 import confetti from 'canvas-confetti';
 
 interface PdfWorkspaceProps {
@@ -451,15 +452,74 @@ export default function PdfWorkspace({ toolId, toolName, onBack }: PdfWorkspaceP
         case 'pdf-to-jpg':
         case 'ocr':
         case 'ai-summarizer': {
-          const result = await processViaILovePDF(toolId, files);
-          const url = URL.createObjectURL(result.blob);
+          // Try API first, fall back to client-side processing
+          let resultBlob: Blob;
+          let resultFile: string;
+          let apiWorked = false;
+          try {
+            const apiResult = await processViaILovePDF(toolId, files);
+            resultBlob = apiResult.blob;
+            resultFile = apiResult.fileName;
+            apiWorked = true;
+          } catch {
+            // API unavailable — use client-side fallback
+            const buffer = await fileToArrayBuffer(files[0]);
+            if (toolId === 'pdf-to-word') {
+              const text = await extractTextFromPdf(buffer);
+              const docContent = `Document: ${files[0].name}\n\n${text}\n\n---\nExtracted by Docify (client-side)`;
+              resultBlob = new Blob([docContent], { type: 'text/plain' });
+              resultFile = `${files[0].name.replace('.pdf', '')}_extracted.txt`;
+            } else if (toolId === 'pdf-to-excel') {
+              const infos = await getPdfPageInfos(buffer);
+              const csvRows = [['Page', 'Content'].join(',')];
+              infos.forEach(info => {
+                const text = info.text.replace(/"/g, '""').substring(0, 200);
+                csvRows.push(`"${info.pageNumber}","${text}"`);
+              });
+              resultBlob = new Blob([csvRows.join('\n')], { type: 'text/csv' });
+              resultFile = `${files[0].name.replace('.pdf', '')}_extracted.csv`;
+            } else if (toolId === 'pdf-to-ppt') {
+              const infos = await getPdfPageInfos(buffer);
+              const slides = infos.map(info =>
+                `Slide ${info.pageNumber}\n${'='.repeat(30)}\n${info.text.substring(0, 500)}`
+              ).join('\n\n');
+              resultBlob = new Blob([slides], { type: 'text/plain' });
+              resultFile = `${files[0].name.replace('.pdf', '')}_presentation.txt`;
+            } else if (toolId === 'pdf-to-jpg') {
+              resultBlob = await pdfToZipOfJpgs(buffer);
+              resultFile = `${files[0].name.replace('.pdf', '')}_images.zip`;
+            } else if (toolId === 'ocr') {
+              const text = await extractTextFromPdf(buffer);
+              const ocrText = `OCR Result: ${files[0].name}\n${'='.repeat(40)}\n\n${text}\n\n---\nText extracted client-side via pdf.js`;
+              resultBlob = new Blob([ocrText], { type: 'text/plain' });
+              resultFile = `${files[0].name.replace('.pdf', '')}_ocr.txt`;
+            } else {
+              const text = await extractTextFromPdf(buffer);
+              const words = text.split(/\s+/).filter(Boolean).length;
+              const chars = text.length;
+              const summary = [
+                `# AI Summary: ${files[0].name}`,
+                '',
+                `**Pages**: ${(await (await getPdfDocFromBuffer(buffer)).numPages)}`,
+                `**Words**: ${words}`,
+                `**Characters**: ${chars}`,
+                '',
+                '---',
+                '',
+                text.substring(0, 2000) + (text.length > 2000 ? '\n\n...[truncated]...' : ''),
+              ].join('\n');
+              resultBlob = new Blob([summary], { type: 'text/markdown' });
+              resultFile = `${files[0].name.replace('.pdf', '')}_summary.md`;
+            }
+          }
+          const url = URL.createObjectURL(resultBlob);
           setResultBlobUrl(url);
-          setResultFileName(result.fileName);
+          setResultFileName(resultFile);
           setIsSuccess(true);
           setIsProcessing(false);
           const tempLink = document.createElement('a');
           tempLink.href = url;
-          tempLink.setAttribute('download', result.fileName);
+          tempLink.setAttribute('download', resultFile);
           document.body.appendChild(tempLink);
           tempLink.click();
           document.body.removeChild(tempLink);

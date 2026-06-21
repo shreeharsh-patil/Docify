@@ -1,3 +1,12 @@
+export async function checkApiKeysConfigured(): Promise<boolean> {
+  try {
+    const res = await fetch('/api/ilovepdf', { method: 'HEAD' });
+    return res.status !== 400;
+  } catch {
+    return false;
+  }
+}
+
 export async function processViaILovePDF(
   tool: string,
   files: File[],
