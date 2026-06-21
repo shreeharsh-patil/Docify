@@ -396,7 +396,7 @@ function HomeInner() {
                   <div
                     key={tool.id}
                     onClick={() => handleSelectTool(tool.id, tool.name)}
-                    className={`bg-white border rounded-2xl p-6 shadow-sm cursor-pointer flex flex-col justify-between h-[210px] relative group tool-card animate-slide-up ${
+                    className={`bg-white border rounded-2xl p-6 shadow-sm cursor-pointer flex flex-col justify-between h-full min-h-[210px] relative group tool-card animate-slide-up ${
                       tool.category === 'Organize' ? 'hover:border-blue-500/40 hover:shadow-blue-500/5' :
                       tool.category === 'Convert' ? 'hover:border-purple-500/40 hover:shadow-purple-500/5' :
                       tool.category === 'Optimize' ? 'hover:border-amber-500/40 hover:shadow-amber-500/5' :
@@ -461,14 +461,68 @@ function HomeInner() {
             </div>
           </main>
 
-          {/* Footer Info Menu */}
-          <footer className="py-6 border-t border-slate-200 bg-white text-center text-xs text-slate-400 shrink-0">
-            <p className="flex items-center justify-center gap-1.5 font-medium">
-              Made with <Heart className="w-3.5 h-3.5 text-red-500 fill-red-500" /> for secure document workflows. Docify PDF Suite.
-            </p>
-            <p className="mt-1 text-[10px] text-slate-400">
-              All PDF modifications are executed locally via pdf-lib. No files are uploaded to any external server.
-            </p>
+          {/* Footer */}
+          <footer className="bg-[#1a1a1a] border-t border-white/5 text-slate-400 shrink-0">
+            <div className="max-w-6xl mx-auto px-8 py-12">
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-8">
+                <div className="col-span-2 md:col-span-1">
+                  <span className="text-lg font-black tracking-tight">
+                    <span className="text-white">D</span>
+                    <span className="text-red-500">♥</span>
+                    <span className="text-white">cify</span>
+                  </span>
+                  <p className="mt-3 text-xs text-slate-500 leading-relaxed max-w-xs">
+                    Every tool you need to work with PDFs. 100% free, client-side processing with no file uploads.
+                  </p>
+                </div>
+                <div>
+                  <h4 className="text-[10px] font-bold tracking-widest text-slate-500 uppercase mb-3">Tools</h4>
+                  <ul className="space-y-2">
+                    {['Merge PDF', 'Split PDF', 'Compress PDF', 'Rotate PDF'].map(t => (
+                      <li key={t}>
+                        <button onClick={() => {
+                          const tool = t.toLowerCase().replace(/\s/g, '-');
+                          const map: Record<string, string> = { 'merge-pdf': 'merge', 'split-pdf': 'split', 'compress-pdf': 'compress', 'rotate-pdf': 'rotate' };
+                          const slug = map[tool] || tool;
+                          window.location.href = `/?tool=${slug}`;
+                        }} className="text-xs text-slate-500 hover:text-white transition-colors">{t}</button>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+                <div>
+                  <h4 className="text-[10px] font-bold tracking-widest text-slate-500 uppercase mb-3">Convert</h4>
+                  <ul className="space-y-2">
+                    {['JPG to PDF', 'Word to PDF', 'HTML to PDF', 'PDF to JPG'].map(t => (
+                      <li key={t}>
+                        <button onClick={() => {
+                          const slug = t.toLowerCase().replace(/\s+/g, '-').replace('jpg', 'jpg');
+                          window.location.href = `/?tool=${slug}`;
+                        }} className="text-xs text-slate-500 hover:text-white transition-colors">{t}</button>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+                <div>
+                  <h4 className="text-[10px] font-bold tracking-widest text-slate-500 uppercase mb-3">Security</h4>
+                  <ul className="space-y-2">
+                    {['Protect PDF', 'Unlock PDF', 'Sign PDF', 'Redact PDF'].map(t => (
+                      <li key={t}>
+                        <button onClick={() => window.location.href = `/?tool=${t.toLowerCase().replace(/\s/g, '-')}`} className="text-xs text-slate-500 hover:text-white transition-colors">{t}</button>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              </div>
+              <div className="mt-10 pt-6 border-t border-white/5 flex flex-col sm:flex-row items-center justify-between gap-4">
+                <p className="text-[10px] text-slate-600">
+                  All PDF modifications executed locally via pdf-lib. No files uploaded to any server.
+                </p>
+                <p className="flex items-center gap-1.5 text-[10px] text-slate-600">
+                  Made with <Heart className="w-3 h-3 text-red-500 fill-red-500" /> for secure document workflows
+                </p>
+              </div>
+            </div>
           </footer>
         </>
       )}
