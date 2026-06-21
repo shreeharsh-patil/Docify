@@ -139,7 +139,7 @@ export default function Navbar() {
           {/* Logo */}
           <Link href="/" className="shrink-0 mr-6 select-none flex items-center">
             <Image 
-              src="/logo.jpg" 
+              src="/logo.png" 
               alt="Docify Logo" 
               width={200} 
               height={66} 
