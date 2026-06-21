@@ -548,9 +548,8 @@ function HomeInner() {
                 <p className="text-[10px] text-slate-500">
                   All PDF modifications executed locally via pdf-lib. No files uploaded to any server.
                 </p>
-                <p className="flex items-center gap-1.5 text-[10px] text-slate-500">
-                  Made with <Heart className="w-3 h-3 text-red-500 fill-red-500" /> for secure document workflows
-                </p>
+
+                <p className="text-[10px] text-slate-400">Made By Shreeharsh</p>
               </div>
             </div>
           </footer>
