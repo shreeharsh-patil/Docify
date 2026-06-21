@@ -141,9 +141,9 @@ export default function Navbar() {
             <Image 
               src="/logo.jpg" 
               alt="Docify Logo" 
-              width={140} 
-              height={46} 
-              className="h-10 w-auto object-contain"
+              width={200} 
+              height={66} 
+              className="h-14 w-auto object-contain scale-125 origin-left"
               priority
             />
           </Link>

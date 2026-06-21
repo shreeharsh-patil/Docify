@@ -472,9 +472,9 @@ function HomeInner() {
                     <Image 
                       src="/logo-footer.png" 
                       alt="Docify Logo" 
-                      width={140} 
-                      height={46} 
-                      className="h-8 w-auto object-contain"
+                      width={220} 
+                      height={72} 
+                      className="h-16 w-auto object-contain origin-left scale-125"
                     />
                   </Link>
                   <p className="mt-3 text-xs text-slate-500 leading-relaxed max-w-xs">
