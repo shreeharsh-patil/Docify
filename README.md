@@ -79,7 +79,6 @@ npm run build
 npm start
 ```
 
-Optimized for Vercel — zero-config deployment.
 
 ---
 
