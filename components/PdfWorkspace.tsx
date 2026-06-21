@@ -14,7 +14,8 @@ import {
   pdfToPdfa, cropPdf, fillPdfForms, redactPdf,
   extractTextFromOfficeFile
 } from '@/lib/pdfProcessor';
-import { processViaILovePDF, checkApiKeysConfigured } from '@/lib/ilovepdf-client';
+import { processViaILovePDF } from '@/lib/ilovepdf-client';
+import { processWithAI } from '@/lib/ai-client';
 import { extractTextFromPdf, pdfToZipOfJpgs, getPdfPageInfos } from '@/lib/pdf-client';
 import confetti from 'canvas-confetti';
 
@@ -450,67 +451,86 @@ export default function PdfWorkspace({ toolId, toolName, onBack }: PdfWorkspaceP
         case 'pdf-to-excel':
         case 'pdf-to-ppt':
         case 'pdf-to-jpg':
-        case 'ocr':
-        case 'ai-summarizer': {
-          // Try API first, fall back to client-side processing
+        case 'ocr': {
+          // Try iLovePDF API first, fall back to client-side processing
           let resultBlob: Blob;
           let resultFile: string;
-          let apiWorked = false;
           try {
             const apiResult = await processViaILovePDF(toolId, files);
             resultBlob = apiResult.blob;
             resultFile = apiResult.fileName;
-            apiWorked = true;
           } catch {
-            // API unavailable — use client-side fallback
             const buffer = await fileToArrayBuffer(files[0]);
             if (toolId === 'pdf-to-word') {
               const text = await extractTextFromPdf(buffer);
-              const docContent = `Document: ${files[0].name}\n\n${text}\n\n---\nExtracted by Docify (client-side)`;
-              resultBlob = new Blob([docContent], { type: 'text/plain' });
+              resultBlob = new Blob([`Document: ${files[0].name}\n\n${text}\n\n---\nExtracted by Docify (client-side)`], { type: 'text/plain' });
               resultFile = `${files[0].name.replace('.pdf', '')}_extracted.txt`;
             } else if (toolId === 'pdf-to-excel') {
               const infos = await getPdfPageInfos(buffer);
-              const csvRows = [['Page', 'Content'].join(',')];
-              infos.forEach(info => {
-                const text = info.text.replace(/"/g, '""').substring(0, 200);
-                csvRows.push(`"${info.pageNumber}","${text}"`);
-              });
+              const csvRows = ['Page,Content'];
+              infos.forEach(info => csvRows.push(`"${info.pageNumber}","${info.text.replace(/"/g, '""').substring(0, 200)}"`));
               resultBlob = new Blob([csvRows.join('\n')], { type: 'text/csv' });
               resultFile = `${files[0].name.replace('.pdf', '')}_extracted.csv`;
             } else if (toolId === 'pdf-to-ppt') {
               const infos = await getPdfPageInfos(buffer);
-              const slides = infos.map(info =>
-                `Slide ${info.pageNumber}\n${'='.repeat(30)}\n${info.text.substring(0, 500)}`
-              ).join('\n\n');
-              resultBlob = new Blob([slides], { type: 'text/plain' });
+              resultBlob = new Blob([infos.map(info => `Slide ${info.pageNumber}\n${'='.repeat(30)}\n${info.text.substring(0, 500)}`).join('\n\n')], { type: 'text/plain' });
               resultFile = `${files[0].name.replace('.pdf', '')}_presentation.txt`;
             } else if (toolId === 'pdf-to-jpg') {
               resultBlob = await pdfToZipOfJpgs(buffer);
               resultFile = `${files[0].name.replace('.pdf', '')}_images.zip`;
-            } else if (toolId === 'ocr') {
-              const text = await extractTextFromPdf(buffer);
-              const ocrText = `OCR Result: ${files[0].name}\n${'='.repeat(40)}\n\n${text}\n\n---\nText extracted client-side via pdf.js`;
-              resultBlob = new Blob([ocrText], { type: 'text/plain' });
-              resultFile = `${files[0].name.replace('.pdf', '')}_ocr.txt`;
             } else {
               const text = await extractTextFromPdf(buffer);
-              const words = text.split(/\s+/).filter(Boolean).length;
-              const chars = text.length;
-              const infos = await getPdfPageInfos(buffer);
-              const summary = [
+              resultBlob = new Blob([`OCR Result: ${files[0].name}\n${'='.repeat(40)}\n\n${text}\n\n---\nText extracted client-side via pdf.js`], { type: 'text/plain' });
+              resultFile = `${files[0].name.replace('.pdf', '')}_ocr.txt`;
+            }
+          }
+          const url = URL.createObjectURL(resultBlob);
+          setResultBlobUrl(url);
+          setResultFileName(resultFile);
+          setIsSuccess(true);
+          setIsProcessing(false);
+          const tempLink = document.createElement('a');
+          tempLink.href = url;
+          tempLink.setAttribute('download', resultFile);
+          document.body.appendChild(tempLink);
+          tempLink.click();
+          document.body.removeChild(tempLink);
+          confetti({ particleCount: 80, spread: 60 });
+          return;
+        }
+        case 'ai-summarizer':
+        case 'translate': {
+          // Try Groq AI API first, fall back to client-side text extraction
+          const buffer = await fileToArrayBuffer(files[0]);
+          const pdfText = await extractTextFromPdf(buffer);
+          let resultBlob: Blob;
+          let resultFile: string;
+          try {
+            const aiResult = await processWithAI(
+              toolId as 'summarize' | 'translate',
+              pdfText,
+              toolId === 'ai-summarizer' ? { length: summaryLength } : { language: translateLang }
+            );
+            resultBlob = new Blob([aiResult], { type: 'text/markdown' });
+            resultFile = toolId === 'ai-summarizer'
+              ? `${files[0].name.replace('.pdf', '')}_ai_summary.md`
+              : `${files[0].name.replace('.pdf', '')}_translated_${translateLang}.md`;
+          } catch {
+            // Fallback: basic text extraction
+            const words = pdfText.split(/\s+/).filter(Boolean).length;
+            const chars = pdfText.length;
+            const infos = await getPdfPageInfos(buffer);
+            if (toolId === 'ai-summarizer') {
+              const fallback = [
                 `# AI Summary: ${files[0].name}`,
-                '',
-                `**Pages**: ${infos.length}`,
-                `**Words**: ${words}`,
-                `**Characters**: ${chars}`,
-                '',
-                '---',
-                '',
-                text.substring(0, 2000) + (text.length > 2000 ? '\n\n...[truncated]...' : ''),
+                `**Pages**: ${infos.length}`, `**Words**: ${words}`, `**Characters**: ${chars}`,
+                `---`, pdfText.substring(0, 3000) + (pdfText.length > 3000 ? '\n\n...[truncated]...' : ''),
               ].join('\n');
-              resultBlob = new Blob([summary], { type: 'text/markdown' });
+              resultBlob = new Blob([fallback], { type: 'text/markdown' });
               resultFile = `${files[0].name.replace('.pdf', '')}_summary.md`;
+            } else {
+              resultBlob = new Blob([`Document: ${files[0].name}\nPages: ${infos.length}\n\n${pdfText.substring(0, 5000)}`], { type: 'text/plain' });
+              resultFile = `${files[0].name.replace('.pdf', '')}_extracted.txt`;
             }
           }
           const url = URL.createObjectURL(resultBlob);
@@ -708,38 +728,6 @@ export default function PdfWorkspace({ toolId, toolName, onBack }: PdfWorkspaceP
           tempLink.click();
           document.body.removeChild(tempLink);
           confetti({ particleCount: 75, spread: 55 });
-          return;
-        }
-        case 'translate': {
-          const buffer = await fileToArrayBuffer(files[0]);
-          const { PDFDocument } = await import('pdf-lib');
-          const pdfDoc = await PDFDocument.load(buffer);
-          const total = pdfDoc.getPageCount();
-          const pageTitle = files[0].name.replace('.pdf', '');
-          const title = pdfDoc.getTitle() || pageTitle;
-          const translations: Record<string, string> = {
-            'Spanish': 'Español',
-            'French': 'Français',
-            'German': 'Deutsch',
-            'Chinese': '中文',
-            'Hindi': 'हिन्दी',
-            'Japanese': '日本語'
-          };
-          const destLangName = translations[translateLang] || translateLang;
-          const translationReport = `# Translated PDF Context Outline\n\n**Source Language:** English\n**Target Language:** ${translateLang} (${destLangName})\n**Source File:** ${files[0].name}\n**Document Title:** ${title}\n**Pages:** ${total}\n\n---\n\n## Translation Summary\n\nThe document "${files[0].name}" contains ${total} page(s) and will be translated from English to ${translateLang}.\n\n### Page Index\n${Array.from({ length: total }, (_, i) => `- **Page ${i + 1}**: [Content requires full text extraction for translation]`).join('\n')}\n\n---\n*Note: Full AI-powered translation requires text extraction from the PDF and a translation API service. This stub provides the document structure for reference.*`;
-          const txtBlob = new Blob([translationReport], { type: 'text/markdown' });
-          const url = URL.createObjectURL(txtBlob);
-          setResultBlobUrl(url);
-          setResultFileName(`${pageTitle}_translated_${translateLang}.md`);
-          setIsSuccess(true);
-          setIsProcessing(false);
-          const tempLink = document.createElement('a');
-          tempLink.href = url;
-          tempLink.setAttribute('download', `${pageTitle}_translated_${translateLang}.md`);
-          document.body.appendChild(tempLink);
-          tempLink.click();
-          document.body.removeChild(tempLink);
-          confetti({ particleCount: 70, spread: 50 });
           return;
         }
         default:
