@@ -1,3 +1,5 @@
+import crypto from 'crypto';
+
 const API_BASE = 'https://api.ilovepdf.com/v1';
 
 interface KeyPair {
@@ -17,18 +19,15 @@ function getKeyPairs(): KeyPair[] {
   return pairs;
 }
 
-async function getAuthToken(publicKey: string): Promise<string> {
-  const res = await fetch(`${API_BASE}/auth`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ public_key: publicKey }),
-  });
-  if (!res.ok) {
-    const text = await res.text();
-    throw new Error(`Auth failed: ${text}`);
-  }
-  const data = await res.json();
-  return data.token;
+function generateJWT(publicKey: string, secretKey: string): string {
+  const header = { alg: 'HS256', typ: 'JWT' };
+  const payload = { jti: publicKey };
+  const encodedHeader = Buffer.from(JSON.stringify(header)).toString('base64url');
+  const encodedPayload = Buffer.from(JSON.stringify(payload)).toString('base64url');
+  const signature = crypto.createHmac('sha256', secretKey)
+    .update(`${encodedHeader}.${encodedPayload}`)
+    .digest('base64url');
+  return `${encodedHeader}.${encodedPayload}.${signature}`;
 }
 
 async function startTask(token: string, tool: string): Promise<{ server: string; task: string }> {
@@ -89,7 +88,7 @@ async function downloadResult(server: string, task: string, token: string): Prom
 async function processWithOneKey(
   keyPair: KeyPair, params: ProcessOptions
 ): Promise<{ buffer: ArrayBuffer; fileName: string }> {
-  const token = await getAuthToken(keyPair.publicKey);
+  const token = generateJWT(keyPair.publicKey, keyPair.secretKey);
   const { server, task } = await startTask(token, params.tool);
 
   const serverFilenames: string[] = [];
