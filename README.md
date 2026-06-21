@@ -2,7 +2,7 @@
 
 > Every PDF tool you need, in one place. 100% free, client-side processing — no file uploads.
 
-Docify is a privacy-first, browser-based PDF utility suite. Merge, split, compress, convert, encrypt, annotate, and more — all processed locally using `pdf-lib` and `pdfjs-dist`, with optional Groq/Gemini AI integration for summarization and translation.
+Docify is a privacy-first, browser-based PDF utility suite. Merge, split, compress, convert, encrypt, annotate, and more all processed locally using `pdf-lib` and `pdfjs-dist`, with optional Groq/Gemini AI integration for summarization and translation.
 
 ## Features
 
@@ -79,7 +79,6 @@ npm run build
 npm start
 ```
 
-Optimized for Vercel — zero-config deployment.
 
 ---
 
