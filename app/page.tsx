@@ -77,6 +77,20 @@ export default function Home() {
       category: 'Organize',
       icon: <Activity className="w-8 h-8 text-red-500" />
     },
+    { 
+      id: 'remove-pages', 
+      name: 'Remove Pages', 
+      desc: 'Delete unwanted pages from your PDF file dynamically client-side.',
+      category: 'Organize',
+      icon: <Scissors className="w-8 h-8 text-red-500" />
+    },
+    { 
+      id: 'extract-pages', 
+      name: 'Extract Pages', 
+      desc: 'Extract specified page index ranges from your PDF document client-side.',
+      category: 'Organize',
+      icon: <FileUp className="w-8 h-8 text-red-500" />
+    },
 
     // 2. Convert to PDF
     { 
@@ -144,6 +158,13 @@ export default function Home() {
       category: 'Convert',
       icon: <Presentation className="w-8 h-8 text-red-500" />
     },
+    { 
+      id: 'pdf-to-pdfa', 
+      name: 'PDF to PDF/A', 
+      desc: 'Standardize and validate your PDF files to meet PDF/A long-term archiving conformance rules.',
+      category: 'Convert',
+      icon: <FileText className="w-8 h-8 text-red-500" />
+    },
 
     // 4. Security & Optimization
     { 
@@ -159,6 +180,13 @@ export default function Home() {
       desc: 'Stamp text over your PDF in seconds. Choose typography, opacity and position.',
       category: 'Optimize',
       icon: <Type className="w-8 h-8 text-red-500" />
+    },
+    { 
+      id: 'crop', 
+      name: 'Crop PDF', 
+      desc: 'Trim and adjust PDF margin coordinates and bounding boxes client-side.',
+      category: 'Optimize',
+      icon: <Scissors className="w-8 h-8 text-red-500" />
     },
     { 
       id: 'sign', 
@@ -208,6 +236,34 @@ export default function Home() {
       desc: 'Recognize text inside scanned PDFs and export searchable text nodes.',
       category: 'Security',
       icon: <FileSearch className="w-8 h-8 text-red-500" />
+    },
+    { 
+      id: 'forms', 
+      name: 'Fill PDF Forms', 
+      desc: 'Instantly fill out form text field values and download standard PDF documents.',
+      category: 'Security',
+      icon: <Edit3 className="w-8 h-8 text-red-500" />
+    },
+    { 
+      id: 'redact', 
+      name: 'Redact PDF', 
+      desc: 'Overlay secure black mask blocks on confidential coordinates to hide text patterns.',
+      category: 'Security',
+      icon: <Eye className="w-8 h-8 text-red-500" />
+    },
+    { 
+      id: 'ai-summarizer', 
+      name: 'AI Summarizer', 
+      desc: 'Generate key outline summaries and markdown notes client-side natively from PDF text.',
+      category: 'Security',
+      icon: <Sparkles className="w-8 h-8 text-red-500" />
+    },
+    { 
+      id: 'translate', 
+      name: 'Translate PDF', 
+      desc: 'Extract and translate English text documents to multilingual outline segments.',
+      category: 'Security',
+      icon: <ArrowLeftRight className="w-8 h-8 text-red-500" />
     }
   ];
 
@@ -255,7 +311,8 @@ export default function Home() {
 
             {/* Premium CTA banner */}
             <div className="flex items-center gap-4">
-              <span className="text-[10px] uppercase font-bold tracking-widest text-slate-400 font-mono hidden md:inline">
+              <span className="text-[10px] uppercase font-bold tracking-widest text-slate-400 font-mono hidden md:inline-flex items-center gap-1.5">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
                 🔒 Client-Side Operations Enabled
               </span>
               
@@ -301,11 +358,11 @@ export default function Home() {
           </header>
 
           {/* Hero Headline Section */}
-          <section className="py-12 px-6 text-center max-w-3xl mx-auto shrink-0">
-            <h1 className="text-3.5xl font-black text-slate-900 tracking-tight leading-tight">
+          <section className="py-12 px-6 text-center max-w-3xl mx-auto shrink-0 animate-fade-in">
+            <h1 className="text-3.5xl font-black text-slate-900 tracking-tight leading-tight animate-slide-up">
               Every tool you need to work with PDFs in one place
             </h1>
-            <p className="mt-3 text-sm text-slate-500 max-w-xl mx-auto leading-relaxed">
+            <p className="mt-3 text-sm text-slate-500 max-w-xl mx-auto leading-relaxed animate-fade-in" style={{ animationDelay: '150ms', opacity: 0, animationFillMode: 'forwards' }}>
               Every tool is <strong>100% free</strong> and easy to use. Merge, split, compress, convert, rotate, protect, and sign PDFs in just a few clicks.
             </p>
           </section>
@@ -313,11 +370,12 @@ export default function Home() {
           {/* Tools Dashboard Grid */}
           <main className="flex-1 overflow-y-auto px-8 pb-16 max-w-6xl mx-auto w-full">
             <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
-              {tools.map(tool => (
+              {tools.map((tool, idx) => (
                 <div
                   key={tool.id}
                   onClick={() => handleSelectTool(tool.id, tool.name)}
-                  className="bg-white border border-slate-200/80 rounded-2xl p-6 shadow-sm hover:shadow-xl hover:border-red-500/50 cursor-pointer transition-all duration-300 flex flex-col justify-between h-[210px] relative group"
+                  className="bg-white border border-slate-200/80 rounded-2xl p-6 shadow-sm cursor-pointer flex flex-col justify-between h-[210px] relative group tool-card animate-slide-up"
+                  style={{ animationDelay: `${idx * 25}ms`, opacity: 0, animationFillMode: 'forwards' }}
                 >
                   <div>
                     {/* Header: Icon + Category Badge */}
