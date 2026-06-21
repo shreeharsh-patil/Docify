@@ -468,9 +468,9 @@ function HomeInner() {
             <div className="max-w-6xl mx-auto px-8 py-12">
               <div className="grid grid-cols-2 md:grid-cols-4 gap-8">
                 <div className="col-span-2 md:col-span-1">
-                  <Link href="/" className="inline-block select-none bg-white p-2 rounded-xl">
+                  <Link href="/" className="inline-block select-none">
                     <Image 
-                      src="/logo.jpg" 
+                      src="/logo-footer.png" 
                       alt="Docify Logo" 
                       width={140} 
                       height={46} 

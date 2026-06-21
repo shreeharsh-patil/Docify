@@ -1,14 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { processWithILovePDF } from '@/lib/ilovepdf-service';
+import { processWithILovePDF, getKeyPairs } from '@/lib/ilovepdf-service';
 
 export async function POST(req: NextRequest) {
   try {
-    const pk = process.env.ILOVEPDF_PUBLIC_KEY;
-    const sk = process.env.ILOVEPDF_SECRET_KEY;
-
-    if (!pk || pk === 'your_public_key_here' || !sk || sk === 'your_secret_key_here') {
+    const pairs = getKeyPairs();
+    if (pairs.length === 0) {
       return NextResponse.json(
-        { error: 'iLovePDF API keys not configured. Get free keys at https://developer.ilovepdf.com' },
+        { error: 'iLovePDF API keys not configured. Get free keys at https://developer.ilovepdf.com and set ILOVEPDF_PUBLIC_KEY_1 / ILOVEPDF_SECRET_KEY_1 in .env.local' },
         { status: 400 }
       );
     }
