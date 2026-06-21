@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react";
 import Link from "next/link";
+import Image from "next/image";
 import { ChevronDown, Menu, X } from "lucide-react";
 
 // ─── Mega menu data ───────────────────────────────────────────────────────────
@@ -136,12 +137,15 @@ export default function Navbar() {
         <div className="flex items-center h-14 gap-0">
 
           {/* Logo */}
-          <Link href="/" className="shrink-0 mr-6 select-none">
-            <span className="text-[22px] font-black tracking-tight">
-              <span className="text-gray-900">D</span>
-              <span className="text-red-600">♥</span>
-              <span className="text-gray-900">cify</span>
-            </span>
+          <Link href="/" className="shrink-0 mr-6 select-none flex items-center">
+            <Image 
+              src="/logo.jpg" 
+              alt="Docify Logo" 
+              width={140} 
+              height={46} 
+              className="h-10 w-auto object-contain"
+              priority
+            />
           </Link>
 
           {/* Desktop links */}
