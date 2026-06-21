@@ -12,7 +12,7 @@ import {
   decryptPdfBuffer, signPdf, imagesToPdf, addPageNumbers, 
   compressPdf, repairPdf, htmlToPdf, removePages, extractPages,
   pdfToPdfa, cropPdf, fillPdfForms, redactPdf,
-  extractTextFromOfficeFile
+  extractTextFromOfficeFile, flattenPdf, addHeaderFooter, addBlankPages
 } from '@/lib/pdfProcessor';
 import { processViaILovePDF } from '@/lib/ilovepdf-client';
 import { processWithAI } from '@/lib/ai-client';
@@ -101,6 +101,10 @@ export default function PdfWorkspace({ toolId, toolName, onBack }: PdfWorkspaceP
   const [metaAuthor, setMetaAuthor] = useState('');
   const [metaSubject, setMetaSubject] = useState('');
   const [metaKeywords, setMetaKeywords] = useState('');
+  const [hfHeaderText, setHfHeaderText] = useState('');
+  const [hfFooterText, setHfFooterText] = useState('');
+  const [blankPositions, setBlankPositions] = useState('end');
+  const [blankCount, setBlankCount] = useState(1);
 
   // Initialize Organize indexes when a file is uploaded
   useEffect(() => {
@@ -745,6 +749,50 @@ export default function PdfWorkspace({ toolId, toolName, onBack }: PdfWorkspaceP
           outputBytes = await redactPdf(buffer, redactText, '#000000');
           newName = `${files[0].name.replace('.pdf', '')}_redacted.pdf`;
           break;
+        }
+        case 'flatten-pdf': {
+          const buffer = await fileToArrayBuffer(files[0]);
+          outputBytes = await flattenPdf(buffer);
+          newName = `${files[0].name.replace('.pdf', '')}_flattened.pdf`;
+          break;
+        }
+        case 'header-footer': {
+          const buffer = await fileToArrayBuffer(files[0]);
+          outputBytes = await addHeaderFooter(buffer, hfHeaderText, hfFooterText);
+          newName = `${files[0].name.replace('.pdf', '')}_with_header_footer.pdf`;
+          break;
+        }
+        case 'add-blank-pages': {
+          const buffer = await fileToArrayBuffer(files[0]);
+          const { PDFDocument } = await import('pdf-lib');
+          const tempDoc = await PDFDocument.load(buffer);
+          const totalPages = tempDoc.getPageCount();
+          const pos = blankPositions === 'end'
+            ? [totalPages]
+            : blankPositions === 'start'
+              ? [0]
+              : blankPositions.split(',').map(Number);
+          outputBytes = await addBlankPages(buffer, pos, blankCount);
+          newName = `${files[0].name.replace('.pdf', '')}_with_blank_pages.pdf`;
+          break;
+        }
+        case 'pdf-to-txt': {
+          const buffer = await fileToArrayBuffer(files[0]);
+          const text = await extractTextFromPdf(buffer);
+          const blob = new Blob([text], { type: 'text/plain' });
+          const url = URL.createObjectURL(blob);
+          setResultBlobUrl(url);
+          setResultFileName(`${files[0].name.replace('.pdf', '')}.txt`);
+          setIsSuccess(true);
+          setIsProcessing(false);
+          const tempLink = document.createElement('a');
+          tempLink.href = url;
+          tempLink.setAttribute('download', `${files[0].name.replace('.pdf', '')}.txt`);
+          document.body.appendChild(tempLink);
+          tempLink.click();
+          document.body.removeChild(tempLink);
+          confetti({ particleCount: 80, spread: 60 });
+          return;
         }
         case 'ai-summarizer': {
           const summaryOpts = { output_format: summaryLength === 'brief' ? 'pdf' : 'pdf' };
@@ -1836,8 +1884,61 @@ export default function PdfWorkspace({ toolId, toolName, onBack }: PdfWorkspaceP
                 </button>
               </div>
             </aside>
-          )}
-        </div>
+                )}
+
+                {/* 28. Flatten PDF options */}
+                {toolId === 'flatten-pdf' && (
+                  <div className="space-y-3 bg-red-50/40 p-4 border border-red-100 rounded-xl text-xs text-slate-500">
+                    <p className="font-bold text-slate-800">Flatten PDF:</p>
+                    <p>Permanently merge all annotations, comments, and form fields into the page content.</p>
+                  </div>
+                )}
+
+                {/* 29. Add Blank Pages options */}
+                {toolId === 'add-blank-pages' && (
+                  <div className="space-y-4">
+                    <div>
+                      <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block mb-1">Position</label>
+                      <select value={blankPositions} onChange={e => setBlankPositions(e.target.value)} className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-xs focus:outline-none focus:border-red-500">
+                        <option value="end">At the end</option>
+                        <option value="start">At the beginning</option>
+                        <option value="custom">Custom page numbers (e.g. 1,3,5)</option>
+                      </select>
+                    </div>
+                    {blankPositions === 'custom' && (
+                      <div>
+                        <input type="text" value={blankPositions === 'custom' ? '' : blankPositions} onChange={e => setBlankPositions(e.target.value)} placeholder="e.g. 1,3,5" className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-xs focus:outline-none focus:border-red-500" />
+                      </div>
+                    )}
+                    <div>
+                      <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block mb-1">Number of blank pages</label>
+                      <input type="number" min={1} max={20} value={blankCount} onChange={e => setBlankCount(Math.max(1, Math.min(20, Number(e.target.value))))} className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-xs focus:outline-none focus:border-red-500" />
+                    </div>
+                  </div>
+                )}
+
+                {/* 30. Header & Footer options */}
+                {toolId === 'header-footer' && (
+                  <div className="space-y-4">
+                    <div>
+                      <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block mb-1">Header Text</label>
+                      <input type="text" value={hfHeaderText} onChange={e => setHfHeaderText(e.target.value)} placeholder="e.g. Confidential" className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-xs focus:outline-none focus:border-red-500" />
+                    </div>
+                    <div>
+                      <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block mb-1">Footer Text</label>
+                      <input type="text" value={hfFooterText} onChange={e => setHfFooterText(e.target.value)} placeholder="e.g. Page 1 of X" className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-xs focus:outline-none focus:border-red-500" />
+                    </div>
+                  </div>
+                )}
+
+                {/* 31. PDF to TXT options */}
+                {toolId === 'pdf-to-txt' && (
+                  <div className="space-y-3 bg-red-50/40 p-4 border border-red-100 rounded-xl text-xs text-slate-500">
+                    <p className="font-bold text-slate-800">Text Extraction:</p>
+                    <p>Extracts all plain text from your PDF using client-side PDF.js rendering.</p>
+                  </div>
+                )}
+              </div>
       )}
     </div>
   );

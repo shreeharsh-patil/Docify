@@ -153,7 +153,72 @@ export const rotatePdf = async (
     const currentRotation = page.getRotation().angle;
     page.setRotation(degrees((currentRotation + rotationAngle) % 360));
   });
-  
+  return await pdfDoc.save();
+};
+
+// 19. FLATTEN PDF — merge form fields into page content
+export const flattenPdf = async (pdfBuffer: ArrayBuffer): Promise<Uint8Array> => {
+  const pdfDoc = await PDFDocument.load(pdfBuffer);
+  try {
+    const form = pdfDoc.getForm();
+    form.flatten();
+  } catch {
+    // No form to flatten
+  }
+  return await pdfDoc.save();
+};
+
+// 20. ADD HEADER & FOOTER
+export const addHeaderFooter = async (
+  pdfBuffer: ArrayBuffer,
+  headerText: string,
+  footerText: string
+): Promise<Uint8Array> => {
+  const pdfDoc = await PDFDocument.load(pdfBuffer);
+  const pages = pdfDoc.getPages();
+  const fontSize = 10;
+  const { rgb } = await import('pdf-lib');
+  for (const page of pages) {
+    const { width, height } = page.getSize();
+    if (headerText) {
+      page.drawText(headerText, {
+        x: 50,
+        y: height - 30,
+        size: fontSize,
+        color: rgb(0.4, 0.4, 0.4),
+      });
+    }
+    if (footerText) {
+      page.drawText(footerText, {
+        x: 50,
+        y: 15,
+        size: fontSize,
+        color: rgb(0.4, 0.4, 0.4),
+      });
+    }
+  }
+  return await pdfDoc.save();
+};
+
+// 21. ADD BLANK PAGES
+export const addBlankPages = async (
+  pdfBuffer: ArrayBuffer,
+  positions: number[],
+  count: number = 1
+): Promise<Uint8Array> => {
+  const pdfDoc = await PDFDocument.load(pdfBuffer);
+  const { width, height } = pdfDoc.getPage(0)?.getSize() || { width: 612, height: 792 };
+  const blankDoc = await PDFDocument.create();
+  for (let i = 0; i < count; i++) {
+    blankDoc.addPage([width, height]);
+  }
+  const blankCopies = await pdfDoc.copyPages(blankDoc, Array.from({ length: count }, (_, i) => i));
+  const sorted = [...positions].sort((a, b) => b - a);
+  for (const pos of sorted) {
+    for (let i = 0; i < count; i++) {
+      pdfDoc.insertPage(pos, blankCopies[i]);
+    }
+  }
   return await pdfDoc.save();
 };
 

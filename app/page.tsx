@@ -83,6 +83,10 @@ function HomeInner() {
     'pdf-to-markdown': { id: 'pdf-to-markdown', name: 'PDF to Markdown' },
     'validate-pdfa':   { id: 'validate-pdfa',   name: 'Validate PDF/A' },
     'metadata':        { id: 'metadata',        name: 'Edit Metadata' },
+    'add-blank-pages': { id: 'add-blank-pages', name: 'Add Blank Pages' },
+    'pdf-to-txt':      { id: 'pdf-to-txt',      name: 'PDF to TXT' },
+    'header-footer':   { id: 'header-footer',   name: 'Header & Footer' },
+    'flatten-pdf':     { id: 'flatten-pdf',     name: 'Flatten PDF' },
   };
 
   // Open tool from ?tool= query param
@@ -161,6 +165,13 @@ function HomeInner() {
       desc: 'Extract specified page index ranges from your PDF document client-side.',
       category: 'Organize',
       icon: <FileUp className="w-8 h-8 text-red-500" />
+    },
+    { 
+      id: 'add-blank-pages', 
+      name: 'Add Blank Pages', 
+      desc: 'Insert blank pages at specified positions within your PDF document.',
+      category: 'Organize',
+      icon: <FileText className="w-8 h-8 text-red-500" />
     },
 
     // 2. Convert to PDF
@@ -250,6 +261,13 @@ function HomeInner() {
       category: 'Convert',
       icon: <ShieldAlert className="w-8 h-8 text-red-500" />
     },
+    { 
+      id: 'pdf-to-txt', 
+      name: 'PDF to TXT', 
+      desc: 'Extract plain text from your PDF documents for editing or analysis.',
+      category: 'Convert',
+      icon: <FileText className="w-8 h-8 text-red-500" />
+    },
 
     // 4. Security & Optimization
     { 
@@ -263,6 +281,13 @@ function HomeInner() {
       id: 'watermark', 
       name: 'Watermark PDF', 
       desc: 'Stamp text over your PDF in seconds. Choose typography, opacity and position.',
+      category: 'Optimize',
+      icon: <Type className="w-8 h-8 text-red-500" />
+    },
+    { 
+      id: 'header-footer', 
+      name: 'Header & Footer', 
+      desc: 'Add custom header and footer text to every page of your PDF document.',
       category: 'Optimize',
       icon: <Type className="w-8 h-8 text-red-500" />
     },
@@ -342,6 +367,13 @@ function HomeInner() {
       desc: 'Overlay secure black mask blocks on confidential coordinates to hide text patterns.',
       category: 'Security',
       icon: <Eye className="w-8 h-8 text-red-500" />
+    },
+    { 
+      id: 'flatten-pdf', 
+      name: 'Flatten PDF', 
+      desc: 'Permanently merge annotations, comments, and form fields into the page content.',
+      category: 'Security',
+      icon: <Layers className="w-8 h-8 text-red-500" />
     },
     { 
       id: 'ai-summarizer', 
