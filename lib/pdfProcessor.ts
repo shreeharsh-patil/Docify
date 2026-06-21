@@ -1,4 +1,5 @@
 import { PDFDocument, rgb, degrees } from 'pdf-lib';
+import JSZip from 'jszip';
 
 // Helper to convert File to ArrayBuffer
 export const fileToArrayBuffer = (file: File): Promise<ArrayBuffer> => {
@@ -18,6 +19,88 @@ export const fileToDataUrl = (file: File): Promise<string> => {
     reader.onerror = reject;
     reader.readAsDataURL(file);
   });
+};
+
+// Helper to extract text from Office files (docx, xlsx, pptx)
+export const extractTextFromOfficeFile = async (file: File): Promise<string> => {
+  const ext = file.name.split('.').pop()?.toLowerCase();
+  if (!ext || !['docx', 'xlsx', 'pptx'].includes(ext)) {
+    return `[File: ${file.name}]\n[Office format: ${ext}]\n[Text extraction requires a compatible .docx/.xlsx/.pptx file.]`;
+  }
+  try {
+    const buffer = await file.arrayBuffer();
+    const zip = await JSZip.loadAsync(buffer);
+    const textParts: string[] = [];
+
+    if (ext === 'docx') {
+      const docXml = await zip.file('word/document.xml')?.async('string');
+      if (docXml) {
+        const text = docXml.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
+        textParts.push(text);
+      }
+    } else if (ext === 'xlsx') {
+      // Read shared strings first
+      const sharedStringsXml = await zip.file('xl/sharedStrings.xml')?.async('string');
+      const sharedStrings: string[] = [];
+      if (sharedStringsXml) {
+        const items = sharedStringsXml.match(/<t[^>]*>([^<]*)<\/t>/g) || [];
+        items.forEach(item => {
+          const match = item.match(/<t[^>]*>([^<]*)<\/t>/);
+          if (match) sharedStrings.push(match[1]);
+        });
+      }
+      // Read sheet data
+      const sheetFiles = Object.keys(zip.files).filter(f => f.startsWith('xl/worksheets/sheet') && f.endsWith('.xml'));
+      for (const sheetFile of sheetFiles) {
+        const sheetXml = await zip.file(sheetFile)?.async('string');
+        if (sheetXml) {
+          const rows = sheetXml.match(/<row[^>]*>[\s\S]*?<\/row>/g) || [];
+          for (const row of rows) {
+            const cells = row.match(/<c[^>]*>[\s\S]*?<\/c>/g) || [];
+            const rowTexts: string[] = [];
+            for (const cell of cells) {
+              const vMatch = cell.match(/<v>([^<]*)<\/v>/);
+              const tMatch = cell.match(/<t[^>]*>([^<]*)<\/t>/);
+              if (tMatch) {
+                rowTexts.push(tMatch[1]);
+              } else if (vMatch) {
+                const idx = parseInt(vMatch[1]);
+                if (!isNaN(idx) && sharedStrings[idx]) {
+                  rowTexts.push(sharedStrings[idx]);
+                } else {
+                  rowTexts.push(vMatch[1]);
+                }
+              }
+            }
+            if (rowTexts.length > 0) {
+              textParts.push(rowTexts.join('\t'));
+            }
+          }
+        }
+      }
+    } else if (ext === 'pptx') {
+      const slideFiles = Object.keys(zip.files).filter(f => f.startsWith('ppt/slides/slide') && f.endsWith('.xml')).sort();
+      for (const slideFile of slideFiles) {
+        const slideXml = await zip.file(slideFile)?.async('string');
+        if (slideXml) {
+          const texts = slideXml.match(/<a:t[^>]*>([^<]*)<\/a:t>/g) || [];
+          const slideTexts = texts.map(t => {
+            const match = t.match(/<a:t[^>]*>([^<]*)<\/a:t>/);
+            return match ? match[1] : '';
+          }).filter(Boolean);
+          if (slideTexts.length > 0) {
+            textParts.push(`[Slide ${slideFiles.indexOf(slideFile) + 1}]`);
+            textParts.push(slideTexts.join(' '));
+          }
+        }
+      }
+    }
+
+    const result = textParts.join('\n\n').trim();
+    return result || `[No readable text content found in ${file.name}. The file may contain only images or unsupported elements.]`;
+  } catch (e) {
+    return `[Could not extract text from ${file.name}. Error: ${e}]`;
+  }
 };
 
 // 1. MERGE PDFs
@@ -362,7 +445,7 @@ export const htmlToPdf = async (
   const w = options.pageSize === 'a4' ? 595.27 : 612;
   const h = options.pageSize === 'a4' ? 841.89 : 792;
   
-  const page = pdfDoc.addPage([w, h]);
+  let page = pdfDoc.addPage([w, h]);
   
   // Extract text nodes from basic HTML
   const textContent = html
@@ -395,7 +478,9 @@ export const htmlToPdf = async (
       
       // If we flow off page, add new page
       if (currentY < margin + 20) {
-        break; // for simple prototype, lock to page 1 to prevent buffer overflows
+        currentY = h - margin;
+        const newPage = pdfDoc.addPage([w, h]);
+        page = newPage;
       }
     } else {
       currentLine = testLine;

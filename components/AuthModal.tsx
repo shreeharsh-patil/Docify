@@ -90,7 +90,7 @@ export default function AuthModal({
             <form onSubmit={handleSubmit} className="space-y-4">
               {mode === 'signup' && (
                 <div>
-                  <label className="text-[10px] font-bold text-slate-450 uppercase block mb-1">Name</label>
+                  <label className="text-[10px] font-bold text-slate-400 uppercase block mb-1">Name</label>
                   <div className="relative">
                     <User className="absolute left-3 top-2.5 w-4 h-4 text-slate-400" />
                     <input
@@ -106,7 +106,7 @@ export default function AuthModal({
               )}
 
               <div>
-                <label className="text-[10px] font-bold text-slate-450 uppercase block mb-1">Email Address</label>
+                <label className="text-[10px] font-bold text-slate-400 uppercase block mb-1">Email Address</label>
                 <div className="relative">
                   <Mail className="absolute left-3 top-2.5 w-4 h-4 text-slate-400" />
                   <input
@@ -121,7 +121,7 @@ export default function AuthModal({
               </div>
 
               <div>
-                <label className="text-[10px] font-bold text-slate-450 uppercase block mb-1">Password</label>
+                <label className="text-[10px] font-bold text-slate-400 uppercase block mb-1">Password</label>
                 <div className="relative">
                   <Lock className="absolute left-3 top-2.5 w-4 h-4 text-slate-400" />
                   <input
@@ -188,7 +188,7 @@ export default function AuthModal({
                 {mode === 'login' ? "Don't have an account? " : "Already have an account? "}
                 <button 
                   onClick={() => setMode(mode === 'login' ? 'signup' : 'login')}
-                  className="text-red-650 hover:underline font-bold"
+                  className="text-red-600 hover:underline font-bold"
                 >
                   {mode === 'login' ? 'Create an account' : 'Log in'}
                 </button>

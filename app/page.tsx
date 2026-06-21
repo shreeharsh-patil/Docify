@@ -381,7 +381,7 @@ function HomeInner() {
                   className={`text-xs font-bold px-4 py-2.5 rounded-full transition-all duration-200 cursor-pointer ${
                     selectedCategory === cat
                       ? 'bg-red-600 text-white shadow-md shadow-red-600/15'
-                      : 'bg-white border border-slate-200 text-slate-600 hover:border-slate-350 hover:text-slate-900 hover:shadow-sm'
+                      : 'bg-white border border-slate-200 text-slate-600 hover:border-slate-300 hover:text-slate-900 hover:shadow-sm'
                   }`}
                 >
                   {cat === 'All' ? 'All Tools' : cat}
