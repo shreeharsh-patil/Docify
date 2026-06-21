@@ -9,68 +9,68 @@ const megaMenuGroups = [
   {
     heading: "ORGANIZE PDF",
     tools: [
-      { label: "Merge PDF",       href: "/merge-pdf",      bg: "#E53E3E", letter: "M" },
-      { label: "Split PDF",       href: "/split-pdf",      bg: "#E53E3E", letter: "S" },
-      { label: "Remove pages",    href: "/remove-pages",   bg: "#E53E3E", letter: "R" },
-      { label: "Extract pages",   href: "/extract-pages",  bg: "#E53E3E", letter: "E" },
-      { label: "Organize PDF",    href: "/organize-pdf",   bg: "#E53E3E", letter: "O" },
-      { label: "Scan to PDF",     href: "/scan-to-pdf",    bg: "#E53E3E", letter: "S" },
+      { label: "Merge PDF",       href: "/?tool=merge",          bg: "#E53E3E", letter: "M" },
+      { label: "Split PDF",       href: "/?tool=split",          bg: "#E53E3E", letter: "S" },
+      { label: "Remove pages",    href: "/?tool=remove-pages",   bg: "#E53E3E", letter: "R" },
+      { label: "Extract pages",   href: "/?tool=extract-pages",  bg: "#E53E3E", letter: "E" },
+      { label: "Organize PDF",    href: "/?tool=organize",       bg: "#E53E3E", letter: "O" },
+      { label: "Scan to PDF",     href: "/?tool=scan",           bg: "#E53E3E", letter: "S" },
     ],
   },
   {
     heading: "OPTIMIZE PDF",
     tools: [
-      { label: "Compress PDF",    href: "/compress-pdf",   bg: "#38A169", letter: "C" },
-      { label: "Repair PDF",      href: "/repair-pdf",     bg: "#E53E3E", letter: "R" },
-      { label: "OCR PDF",         href: "/ocr-pdf",        bg: "#805AD5", letter: "O" },
+      { label: "Compress PDF",    href: "/?tool=compress",       bg: "#38A169", letter: "C" },
+      { label: "Repair PDF",      href: "/?tool=repair",         bg: "#E53E3E", letter: "R" },
+      { label: "OCR PDF",         href: "/?tool=ocr",            bg: "#805AD5", letter: "O" },
     ],
   },
   {
     heading: "CONVERT TO PDF",
     tools: [
-      { label: "JPG to PDF",          href: "/jpg-to-pdf",    bg: "#D69E2E", letter: "J" },
-      { label: "WORD to PDF",         href: "/word-to-pdf",   bg: "#2B6CB0", letter: "W" },
-      { label: "POWERPOINT to PDF",   href: "/ppt-to-pdf",    bg: "#C05621", letter: "P" },
-      { label: "EXCEL to PDF",        href: "/excel-to-pdf",  bg: "#276749", letter: "X" },
-      { label: "HTML to PDF",         href: "/html-to-pdf",   bg: "#D69E2E", letter: "H" },
+      { label: "JPG to PDF",          href: "/?tool=jpg-to-pdf",   bg: "#D69E2E", letter: "J" },
+      { label: "WORD to PDF",         href: "/?tool=word-to-pdf",  bg: "#2B6CB0", letter: "W" },
+      { label: "POWERPOINT to PDF",   href: "/?tool=ppt-to-pdf",   bg: "#C05621", letter: "P" },
+      { label: "EXCEL to PDF",        href: "/?tool=excel-to-pdf", bg: "#276749", letter: "X" },
+      { label: "HTML to PDF",         href: "/?tool=html-to-pdf",  bg: "#D69E2E", letter: "H" },
     ],
   },
   {
     heading: "CONVERT FROM PDF",
     tools: [
-      { label: "PDF to JPG",          href: "/pdf-to-jpg",    bg: "#D69E2E", letter: "J" },
-      { label: "PDF to WORD",         href: "/pdf-to-word",   bg: "#2B6CB0", letter: "W" },
-      { label: "PDF to POWERPOINT",   href: "/pdf-to-ppt",    bg: "#C05621", letter: "P" },
-      { label: "PDF to EXCEL",        href: "/pdf-to-excel",  bg: "#276749", letter: "X" },
-      { label: "PDF to PDF/A",        href: "/pdf-to-pdfa",   bg: "#D69E2E", letter: "A" },
+      { label: "PDF to JPG",          href: "/?tool=pdf-to-jpg",   bg: "#D69E2E", letter: "J" },
+      { label: "PDF to WORD",         href: "/?tool=pdf-to-word",  bg: "#2B6CB0", letter: "W" },
+      { label: "PDF to POWERPOINT",   href: "/?tool=pdf-to-ppt",   bg: "#C05621", letter: "P" },
+      { label: "PDF to EXCEL",        href: "/?tool=pdf-to-excel", bg: "#276749", letter: "X" },
+      { label: "PDF to PDF/A",        href: "/?tool=pdf-to-pdfa",  bg: "#D69E2E", letter: "A" },
     ],
   },
   {
     heading: "EDIT PDF",
     tools: [
-      { label: "Rotate PDF",          href: "/rotate-pdf",     bg: "#805AD5", letter: "R" },
-      { label: "Add page numbers",    href: "/page-numbers",   bg: "#805AD5", letter: "#" },
-      { label: "Add watermark",       href: "/watermark-pdf",  bg: "#805AD5", letter: "W" },
-      { label: "Crop PDF",            href: "/crop-pdf",       bg: "#805AD5", letter: "C" },
-      { label: "Edit PDF",            href: "/edit-pdf",       bg: "#805AD5", letter: "E" },
-      { label: "PDF Forms",           href: "/pdf-forms",      bg: "#805AD5", letter: "F" },
+      { label: "Rotate PDF",          href: "/?tool=rotate",        bg: "#805AD5", letter: "R" },
+      { label: "Add page numbers",    href: "/?tool=page-numbers",  bg: "#805AD5", letter: "#" },
+      { label: "Add watermark",       href: "/?tool=watermark",     bg: "#805AD5", letter: "W" },
+      { label: "Crop PDF",            href: "/?tool=crop",          bg: "#805AD5", letter: "C" },
+      { label: "Edit PDF",            href: "/?tool=edit",          bg: "#805AD5", letter: "E" },
+      { label: "PDF Forms",           href: "/?tool=forms",         bg: "#805AD5", letter: "F" },
     ],
   },
   {
     heading: "PDF SECURITY",
     tools: [
-      { label: "Unlock PDF",    href: "/unlock-pdf",   bg: "#2B6CB0", letter: "U" },
-      { label: "Protect PDF",   href: "/protect-pdf",  bg: "#2B6CB0", letter: "P" },
-      { label: "Sign PDF",      href: "/sign-pdf",     bg: "#2B6CB0", letter: "S" },
-      { label: "Redact PDF",    href: "/redact-pdf",   bg: "#2B6CB0", letter: "R" },
-      { label: "Compare PDF",   href: "/compare-pdf",  bg: "#2B6CB0", letter: "C" },
+      { label: "Unlock PDF",    href: "/?tool=unlock",   bg: "#2B6CB0", letter: "U" },
+      { label: "Protect PDF",   href: "/?tool=protect",  bg: "#2B6CB0", letter: "P" },
+      { label: "Sign PDF",      href: "/?tool=sign",     bg: "#2B6CB0", letter: "S" },
+      { label: "Redact PDF",    href: "/?tool=redact",   bg: "#2B6CB0", letter: "R" },
+      { label: "Compare PDF",   href: "/?tool=compare",  bg: "#2B6CB0", letter: "C" },
     ],
   },
   {
     heading: "PDF INTELLIGENCE",
     tools: [
-      { label: "AI Summarizer",   href: "/ai-summarizer",   bg: "#6B46C1", letter: "A" },
-      { label: "Translate PDF",   href: "/translate-pdf",   bg: "#6B46C1", letter: "T" },
+      { label: "AI Summarizer",   href: "/?tool=ai-summarizer",   bg: "#6B46C1", letter: "A" },
+      { label: "Translate PDF",   href: "/?tool=translate",       bg: "#6B46C1", letter: "T" },
     ],
   },
 ];
@@ -79,21 +79,21 @@ const convertGroups = [
   {
     heading: "CONVERT TO PDF",
     tools: [
-      { label: "JPG to PDF",        href: "/jpg-to-pdf",   bg: "#D69E2E", letter: "J" },
-      { label: "WORD to PDF",       href: "/word-to-pdf",  bg: "#2B6CB0", letter: "W" },
-      { label: "POWERPOINT to PDF", href: "/ppt-to-pdf",   bg: "#C05621", letter: "P" },
-      { label: "EXCEL to PDF",      href: "/excel-to-pdf", bg: "#276749", letter: "X" },
-      { label: "HTML to PDF",       href: "/html-to-pdf",  bg: "#D69E2E", letter: "H" },
+      { label: "JPG to PDF",        href: "/?tool=jpg-to-pdf",   bg: "#D69E2E", letter: "J" },
+      { label: "WORD to PDF",       href: "/?tool=word-to-pdf",  bg: "#2B6CB0", letter: "W" },
+      { label: "POWERPOINT to PDF", href: "/?tool=ppt-to-pdf",   bg: "#C05621", letter: "P" },
+      { label: "EXCEL to PDF",      href: "/?tool=excel-to-pdf", bg: "#276749", letter: "X" },
+      { label: "HTML to PDF",       href: "/?tool=html-to-pdf",  bg: "#D69E2E", letter: "H" },
     ],
   },
   {
     heading: "CONVERT FROM PDF",
     tools: [
-      { label: "PDF to JPG",        href: "/pdf-to-jpg",   bg: "#D69E2E", letter: "J" },
-      { label: "PDF to WORD",       href: "/pdf-to-word",  bg: "#2B6CB0", letter: "W" },
-      { label: "PDF to POWERPOINT", href: "/pdf-to-ppt",   bg: "#C05621", letter: "P" },
-      { label: "PDF to EXCEL",      href: "/pdf-to-excel", bg: "#276749", letter: "X" },
-      { label: "PDF to PDF/A",      href: "/pdf-to-pdfa",  bg: "#D69E2E", letter: "A" },
+      { label: "PDF to JPG",        href: "/?tool=pdf-to-jpg",   bg: "#D69E2E", letter: "J" },
+      { label: "PDF to WORD",       href: "/?tool=pdf-to-word",  bg: "#2B6CB0", letter: "W" },
+      { label: "PDF to POWERPOINT", href: "/?tool=pdf-to-ppt",   bg: "#C05621", letter: "P" },
+      { label: "PDF to EXCEL",      href: "/?tool=pdf-to-excel", bg: "#276749", letter: "X" },
+      { label: "PDF to PDF/A",      href: "/?tool=pdf-to-pdfa",  bg: "#D69E2E", letter: "A" },
     ],
   },
 ];
@@ -144,13 +144,13 @@ export default function Navbar() {
 
           {/* Desktop links */}
           <nav className="hidden md:flex items-center flex-1">
-            <Link href="/merge-pdf" className="px-3.5 py-1 text-[13px] font-bold text-gray-700 hover:text-red-600 uppercase tracking-wide transition-colors whitespace-nowrap">
+            <Link href="/?tool=merge" className="px-3.5 py-1 text-[13px] font-bold text-gray-700 hover:text-red-600 uppercase tracking-wide transition-colors whitespace-nowrap">
               Merge PDF
             </Link>
-            <Link href="/split-pdf" className="px-3.5 py-1 text-[13px] font-bold text-gray-700 hover:text-red-600 uppercase tracking-wide transition-colors whitespace-nowrap">
+            <Link href="/?tool=split" className="px-3.5 py-1 text-[13px] font-bold text-gray-700 hover:text-red-600 uppercase tracking-wide transition-colors whitespace-nowrap">
               Split PDF
             </Link>
-            <Link href="/compress-pdf" className="px-3.5 py-1 text-[13px] font-bold text-gray-700 hover:text-red-600 uppercase tracking-wide transition-colors whitespace-nowrap">
+            <Link href="/?tool=compress" className="px-3.5 py-1 text-[13px] font-bold text-gray-700 hover:text-red-600 uppercase tracking-wide transition-colors whitespace-nowrap">
               Compress PDF
             </Link>
 
@@ -179,10 +179,10 @@ export default function Navbar() {
 
           {/* Auth + grid icon */}
           <div className="hidden md:flex items-center gap-1 shrink-0 ml-auto">
-            <Link href="/login" className="px-4 py-1.5 text-sm font-semibold text-gray-700 hover:text-red-600 transition-colors">
+            <Link href="/?auth=login" className="px-4 py-1.5 text-sm font-semibold text-gray-700 hover:text-red-600 transition-colors">
               Login
             </Link>
-            <Link href="/register" className="px-4 py-2 text-sm font-bold text-white bg-red-600 hover:bg-red-700 rounded-lg transition-colors">
+            <Link href="/?auth=signup" className="px-4 py-2 text-sm font-bold text-white bg-red-600 hover:bg-red-700 rounded-lg transition-colors">
               Sign up
             </Link>
             <button className="ml-1 p-2 text-gray-500 hover:text-red-600 hover:bg-gray-100 rounded-lg transition-colors" aria-label="More">
@@ -283,9 +283,9 @@ export default function Navbar() {
       {mobileOpen && (
         <div className="md:hidden absolute left-0 right-0 top-full bg-white border-t border-gray-100 shadow-xl z-50 max-h-[80vh] overflow-y-auto">
           <div className="px-4 py-4">
-            <Link href="/merge-pdf"    className="block py-3 text-sm font-bold text-gray-700 hover:text-red-600 border-b border-gray-100 uppercase">Merge PDF</Link>
-            <Link href="/split-pdf"    className="block py-3 text-sm font-bold text-gray-700 hover:text-red-600 border-b border-gray-100 uppercase">Split PDF</Link>
-            <Link href="/compress-pdf" className="block py-3 text-sm font-bold text-gray-700 hover:text-red-600 border-b border-gray-100 uppercase">Compress PDF</Link>
+            <Link href="/?tool=merge"    className="block py-3 text-sm font-bold text-gray-700 hover:text-red-600 border-b border-gray-100 uppercase">Merge PDF</Link>
+            <Link href="/?tool=split"    className="block py-3 text-sm font-bold text-gray-700 hover:text-red-600 border-b border-gray-100 uppercase">Split PDF</Link>
+            <Link href="/?tool=compress" className="block py-3 text-sm font-bold text-gray-700 hover:text-red-600 border-b border-gray-100 uppercase">Compress PDF</Link>
 
             {megaMenuGroups.map((group) => (
               <div key={group.heading} className="mt-4">
@@ -300,8 +300,8 @@ export default function Navbar() {
             ))}
 
             <div className="flex gap-3 pt-4 mt-4 border-t border-gray-100">
-              <Link href="/login"    className="flex-1 text-center py-2.5 text-sm font-bold text-gray-700 border border-gray-200 rounded-lg">Login</Link>
-              <Link href="/register" className="flex-1 text-center py-2.5 text-sm font-bold text-white bg-red-600 hover:bg-red-700 rounded-lg">Sign up</Link>
+              <Link href="/?auth=login"    className="flex-1 text-center py-2.5 text-sm font-bold text-gray-700 border border-gray-200 rounded-lg">Login</Link>
+              <Link href="/?auth=signup" className="flex-1 text-center py-2.5 text-sm font-bold text-white bg-red-600 hover:bg-red-700 rounded-lg">Sign up</Link>
             </div>
           </div>
         </div>

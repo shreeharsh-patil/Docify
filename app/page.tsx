@@ -1,6 +1,7 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, Suspense } from 'react';
+import { useSearchParams, useRouter } from 'next/navigation';
 import PdfWorkspace from '@/components/PdfWorkspace';
 import AuthModal from '@/components/AuthModal';
 import { 
@@ -20,19 +21,83 @@ interface PdfTool {
   icon: React.ReactNode;
 }
 
-export default function Home() {
+// Inner component that safely uses useSearchParams inside Suspense
+function HomeInner() {
   const [activeTool, setActiveTool] = useState<string | null>(null);
   const [activeToolName, setActiveToolName] = useState('');
   const [authMode, setAuthMode] = useState<'login' | 'signup' | null>(null);
   const [userEmail, setUserEmail] = useState<string | null>(null);
   const [selectedCategory, setSelectedCategory] = useState<'All' | 'Organize' | 'Convert' | 'Optimize' | 'Security'>('All');
 
+  const searchParams = useSearchParams();
+  const router = useRouter();
+
   useEffect(() => {
     const saved = localStorage.getItem('docify_user_email');
-    if (saved) {
-      setUserEmail(saved);
-    }
+    if (saved) setUserEmail(saved);
   }, []);
+
+  // Map URL slug → tool id + name
+  const toolSlugMap: Record<string, { id: string; name: string }> = {
+    'merge':         { id: 'merge',        name: 'Merge PDF' },
+    'merge-pdf':     { id: 'merge',        name: 'Merge PDF' },
+    'split':         { id: 'split',        name: 'Split PDF' },
+    'split-pdf':     { id: 'split',        name: 'Split PDF' },
+    'compress':      { id: 'compress',     name: 'Compress PDF' },
+    'compress-pdf':  { id: 'compress',     name: 'Compress PDF' },
+    'organize':      { id: 'organize',     name: 'Organize PDF' },
+    'organize-pdf':  { id: 'organize',     name: 'Organize PDF' },
+    'rotate':        { id: 'rotate',       name: 'Rotate PDF' },
+    'rotate-pdf':    { id: 'rotate',       name: 'Rotate PDF' },
+    'watermark':     { id: 'watermark',    name: 'Watermark PDF' },
+    'watermark-pdf': { id: 'watermark',    name: 'Watermark PDF' },
+    'protect':       { id: 'protect',      name: 'Protect PDF' },
+    'protect-pdf':   { id: 'protect',      name: 'Protect PDF' },
+    'unlock':        { id: 'unlock',       name: 'Unlock PDF' },
+    'unlock-pdf':    { id: 'unlock',       name: 'Unlock PDF' },
+    'jpg-to-pdf':    { id: 'jpg-to-pdf',   name: 'JPG to PDF' },
+    'pdf-to-jpg':    { id: 'pdf-to-jpg',   name: 'PDF to JPG' },
+    'word-to-pdf':   { id: 'word-to-pdf',  name: 'Word to PDF' },
+    'pdf-to-word':   { id: 'pdf-to-word',  name: 'PDF to Word' },
+    'sign':          { id: 'sign',         name: 'Sign PDF' },
+    'sign-pdf':      { id: 'sign',         name: 'Sign PDF' },
+    'edit':          { id: 'edit',         name: 'Edit PDF' },
+    'edit-pdf':      { id: 'edit',         name: 'Edit PDF' },
+    'ocr':           { id: 'ocr',          name: 'OCR PDF' },
+    'ocr-pdf':       { id: 'ocr',          name: 'OCR PDF' },
+    'ai-summarizer': { id: 'ai-summarizer', name: 'AI Summarizer' },
+    'translate':     { id: 'translate',    name: 'Translate PDF' },
+    'translate-pdf': { id: 'translate',    name: 'Translate PDF' },
+    'page-numbers':  { id: 'page-numbers', name: 'Page Numbers' },
+    'repair':        { id: 'repair',       name: 'Repair PDF' },
+    'remove-pages':  { id: 'remove-pages', name: 'Remove Pages' },
+    'extract-pages': { id: 'extract-pages', name: 'Extract Pages' },
+    'crop':          { id: 'crop',         name: 'Crop PDF' },
+    'scan':          { id: 'scan',         name: 'Scan to PDF' },
+    'forms':         { id: 'forms',        name: 'Fill PDF Forms' },
+    'redact':        { id: 'redact',       name: 'Redact PDF' },
+    'compare':       { id: 'compare',      name: 'Compare PDF' },
+    'pdf-to-pdfa':   { id: 'pdf-to-pdfa',   name: 'PDF to PDF/A' },
+  };
+
+  // Open tool from ?tool= query param
+  useEffect(() => {
+    const toolParam = searchParams.get('tool');
+    if (toolParam && toolSlugMap[toolParam]) {
+      const { id, name } = toolSlugMap[toolParam];
+      setActiveTool(id);
+      setActiveToolName(name);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams]);
+
+  // Open auth modal from ?auth= query param
+  useEffect(() => {
+    const authParam = searchParams.get('auth');
+    if (authParam === 'login') setAuthMode('login');
+    else if (authParam === 'signup') setAuthMode('signup');
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams]);
 
   const tools: PdfTool[] = [
     // 1. Organize
@@ -276,6 +341,8 @@ export default function Home() {
   const handleBackToDashboard = () => {
     setActiveTool(null);
     setActiveToolName('');
+    // Clear the query param so back navigation works cleanly
+    router.push('/');
   };
 
   return (
@@ -416,5 +483,14 @@ export default function Home() {
         }} 
       />
     </div>
+  );
+}
+
+// Exported page: wraps HomeInner in Suspense (required by Next.js for useSearchParams)
+export default function Home() {
+  return (
+    <Suspense fallback={null}>
+      <HomeInner />
+    </Suspense>
   );
 }
