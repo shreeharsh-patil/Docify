@@ -1,111 +1,131 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import Link from "next/link";
 import Image from "next/image";
-import { ChevronDown, Menu, X } from "lucide-react";
+import {
+  ChevronDown, Menu, X,
+  Layers, Split, Scissors, FileUp, FolderClosed, Camera,
+  Sliders, Wrench, Scan,
+  Image as ImageIcon, FileText, Presentation, FileSpreadsheet, Code2, Archive,
+  RotateCw, Hash, Droplet, Crop, Edit3, ClipboardList,
+  Unlock, Lock, PenTool, EyeOff, ArrowLeftRight,
+  Sparkles, Languages
+} from "lucide-react";
 
 // ─── Mega menu data ───────────────────────────────────────────────────────────
-const megaMenuGroups = [
+interface NavTool {
+  label: string;
+  href: string;
+  bg: string;
+  icon: React.ReactNode;
+}
+
+interface NavGroup {
+  heading: string;
+  tools: NavTool[];
+}
+
+const megaMenuGroups: NavGroup[] = [
   {
     heading: "ORGANIZE PDF",
     tools: [
-      { label: "Merge PDF",       href: "/?tool=merge",          bg: "#E53E3E", letter: "M" },
-      { label: "Split PDF",       href: "/?tool=split",          bg: "#E53E3E", letter: "S" },
-      { label: "Remove pages",    href: "/?tool=remove-pages",   bg: "#E53E3E", letter: "R" },
-      { label: "Extract pages",   href: "/?tool=extract-pages",  bg: "#E53E3E", letter: "E" },
-      { label: "Organize PDF",    href: "/?tool=organize",       bg: "#E53E3E", letter: "O" },
-      { label: "Scan to PDF",     href: "/?tool=scan",           bg: "#E53E3E", letter: "S" },
+      { label: "Merge PDF",       href: "/?tool=merge",          bg: "#E53E3E", icon: <Layers size={13} className="text-white" /> },
+      { label: "Split PDF",       href: "/?tool=split",          bg: "#E53E3E", icon: <Split size={13} className="text-white" /> },
+      { label: "Remove pages",    href: "/?tool=remove-pages",   bg: "#E53E3E", icon: <Scissors size={13} className="text-white" /> },
+      { label: "Extract pages",   href: "/?tool=extract-pages",  bg: "#E53E3E", icon: <FileUp size={13} className="text-white" /> },
+      { label: "Organize PDF",    href: "/?tool=organize",       bg: "#E53E3E", icon: <FolderClosed size={13} className="text-white" /> },
+      { label: "Scan to PDF",     href: "/?tool=scan",           bg: "#E53E3E", icon: <Camera size={13} className="text-white" /> },
     ],
   },
   {
     heading: "OPTIMIZE PDF",
     tools: [
-      { label: "Compress PDF",    href: "/?tool=compress",       bg: "#38A169", letter: "C" },
-      { label: "Repair PDF",      href: "/?tool=repair",         bg: "#E53E3E", letter: "R" },
-      { label: "OCR PDF",         href: "/?tool=ocr",            bg: "#805AD5", letter: "O" },
+      { label: "Compress PDF",    href: "/?tool=compress",       bg: "#38A169", icon: <Sliders size={13} className="text-white" /> },
+      { label: "Repair PDF",      href: "/?tool=repair",         bg: "#E53E3E", icon: <Wrench size={13} className="text-white" /> },
+      { label: "OCR PDF",         href: "/?tool=ocr",            bg: "#805AD5", icon: <Scan size={13} className="text-white" /> },
     ],
   },
   {
     heading: "CONVERT TO PDF",
     tools: [
-      { label: "JPG to PDF",          href: "/?tool=jpg-to-pdf",   bg: "#D69E2E", letter: "J" },
-      { label: "WORD to PDF",         href: "/?tool=word-to-pdf",  bg: "#2B6CB0", letter: "W" },
-      { label: "POWERPOINT to PDF",   href: "/?tool=ppt-to-pdf",   bg: "#C05621", letter: "P" },
-      { label: "EXCEL to PDF",        href: "/?tool=excel-to-pdf", bg: "#276749", letter: "X" },
-      { label: "HTML to PDF",         href: "/?tool=html-to-pdf",  bg: "#D69E2E", letter: "H" },
+      { label: "JPG to PDF",          href: "/?tool=jpg-to-pdf",   bg: "#D69E2E", icon: <ImageIcon size={13} className="text-white" /> },
+      { label: "WORD to PDF",         href: "/?tool=word-to-pdf",  bg: "#2B6CB0", icon: <FileText size={13} className="text-white" /> },
+      { label: "POWERPOINT to PDF",   href: "/?tool=ppt-to-pdf",   bg: "#C05621", icon: <Presentation size={13} className="text-white" /> },
+      { label: "EXCEL to PDF",        href: "/?tool=excel-to-pdf", bg: "#276749", icon: <FileSpreadsheet size={13} className="text-white" /> },
+      { label: "HTML to PDF",         href: "/?tool=html-to-pdf",  bg: "#D69E2E", icon: <Code2 size={13} className="text-white" /> },
     ],
   },
   {
     heading: "CONVERT FROM PDF",
     tools: [
-      { label: "PDF to JPG",          href: "/?tool=pdf-to-jpg",   bg: "#D69E2E", letter: "J" },
-      { label: "PDF to WORD",         href: "/?tool=pdf-to-word",  bg: "#2B6CB0", letter: "W" },
-      { label: "PDF to POWERPOINT",   href: "/?tool=pdf-to-ppt",   bg: "#C05621", letter: "P" },
-      { label: "PDF to EXCEL",        href: "/?tool=pdf-to-excel", bg: "#276749", letter: "X" },
-      { label: "PDF to PDF/A",        href: "/?tool=pdf-to-pdfa",  bg: "#D69E2E", letter: "A" },
+      { label: "PDF to JPG",          href: "/?tool=pdf-to-jpg",   bg: "#D69E2E", icon: <ImageIcon size={13} className="text-white" /> },
+      { label: "PDF to WORD",         href: "/?tool=pdf-to-word",  bg: "#2B6CB0", icon: <FileText size={13} className="text-white" /> },
+      { label: "PDF to POWERPOINT",   href: "/?tool=pdf-to-ppt",   bg: "#C05621", icon: <Presentation size={13} className="text-white" /> },
+      { label: "PDF to EXCEL",        href: "/?tool=pdf-to-excel", bg: "#276749", icon: <FileSpreadsheet size={13} className="text-white" /> },
+      { label: "PDF to PDF/A",        href: "/?tool=pdf-to-pdfa",  bg: "#D69E2E", icon: <Archive size={13} className="text-white" /> },
     ],
   },
   {
     heading: "EDIT PDF",
     tools: [
-      { label: "Rotate PDF",          href: "/?tool=rotate",        bg: "#805AD5", letter: "R" },
-      { label: "Add page numbers",    href: "/?tool=page-numbers",  bg: "#805AD5", letter: "#" },
-      { label: "Add watermark",       href: "/?tool=watermark",     bg: "#805AD5", letter: "W" },
-      { label: "Crop PDF",            href: "/?tool=crop",          bg: "#805AD5", letter: "C" },
-      { label: "Edit PDF",            href: "/?tool=edit",          bg: "#805AD5", letter: "E" },
-      { label: "PDF Forms",           href: "/?tool=forms",         bg: "#805AD5", letter: "F" },
+      { label: "Rotate PDF",          href: "/?tool=rotate",        bg: "#805AD5", icon: <RotateCw size={13} className="text-white" /> },
+      { label: "Add page numbers",    href: "/?tool=page-numbers",  bg: "#805AD5", icon: <Hash size={13} className="text-white" /> },
+      { label: "Add watermark",       href: "/?tool=watermark",     bg: "#805AD5", icon: <Droplet size={13} className="text-white" /> },
+      { label: "Crop PDF",            href: "/?tool=crop",          bg: "#805AD5", icon: <Crop size={13} className="text-white" /> },
+      { label: "Edit PDF",            href: "/?tool=edit",          bg: "#805AD5", icon: <Edit3 size={13} className="text-white" /> },
+      { label: "PDF Forms",           href: "/?tool=forms",         bg: "#805AD5", icon: <ClipboardList size={13} className="text-white" /> },
     ],
   },
   {
     heading: "PDF SECURITY",
     tools: [
-      { label: "Unlock PDF",    href: "/?tool=unlock",   bg: "#2B6CB0", letter: "U" },
-      { label: "Protect PDF",   href: "/?tool=protect",  bg: "#2B6CB0", letter: "P" },
-      { label: "Sign PDF",      href: "/?tool=sign",     bg: "#2B6CB0", letter: "S" },
-      { label: "Redact PDF",    href: "/?tool=redact",   bg: "#2B6CB0", letter: "R" },
-      { label: "Compare PDF",   href: "/?tool=compare",  bg: "#2B6CB0", letter: "C" },
+      { label: "Unlock PDF",    href: "/?tool=unlock",   bg: "#2B6CB0", icon: <Unlock size={13} className="text-white" /> },
+      { label: "Protect PDF",   href: "/?tool=protect",  bg: "#2B6CB0", icon: <Lock size={13} className="text-white" /> },
+      { label: "Sign PDF",      href: "/?tool=sign",     bg: "#2B6CB0", icon: <PenTool size={13} className="text-white" /> },
+      { label: "Redact PDF",    href: "/?tool=redact",   bg: "#2B6CB0", icon: <EyeOff size={13} className="text-white" /> },
+      { label: "Compare PDF",   href: "/?tool=compare",  bg: "#2B6CB0", icon: <ArrowLeftRight size={13} className="text-white" /> },
     ],
   },
   {
     heading: "PDF INTELLIGENCE",
     tools: [
-      { label: "AI Summarizer",   href: "/?tool=ai-summarizer",   bg: "#6B46C1", letter: "A" },
-      { label: "Translate PDF",   href: "/?tool=translate",       bg: "#6B46C1", letter: "T" },
+      { label: "AI Summarizer",   href: "/?tool=ai-summarizer",   bg: "#6B46C1", icon: <Sparkles size={13} className="text-white" /> },
+      { label: "Translate PDF",   href: "/?tool=translate",       bg: "#6B46C1", icon: <Languages size={13} className="text-white" /> },
     ],
   },
 ];
 
-const convertGroups = [
+const convertGroups: NavGroup[] = [
   {
     heading: "CONVERT TO PDF",
     tools: [
-      { label: "JPG to PDF",        href: "/?tool=jpg-to-pdf",   bg: "#D69E2E", letter: "J" },
-      { label: "WORD to PDF",       href: "/?tool=word-to-pdf",  bg: "#2B6CB0", letter: "W" },
-      { label: "POWERPOINT to PDF", href: "/?tool=ppt-to-pdf",   bg: "#C05621", letter: "P" },
-      { label: "EXCEL to PDF",      href: "/?tool=excel-to-pdf", bg: "#276749", letter: "X" },
-      { label: "HTML to PDF",       href: "/?tool=html-to-pdf",  bg: "#D69E2E", letter: "H" },
+      { label: "JPG to PDF",        href: "/?tool=jpg-to-pdf",   bg: "#D69E2E", icon: <ImageIcon size={13} className="text-white" /> },
+      { label: "WORD to PDF",       href: "/?tool=word-to-pdf",  bg: "#2B6CB0", icon: <FileText size={13} className="text-white" /> },
+      { label: "POWERPOINT to PDF", href: "/?tool=ppt-to-pdf",   bg: "#C05621", icon: <Presentation size={13} className="text-white" /> },
+      { label: "EXCEL to PDF",      href: "/?tool=excel-to-pdf", bg: "#276749", icon: <FileSpreadsheet size={13} className="text-white" /> },
+      { label: "HTML to PDF",       href: "/?tool=html-to-pdf",  bg: "#D69E2E", icon: <Code2 size={13} className="text-white" /> },
     ],
   },
   {
     heading: "CONVERT FROM PDF",
     tools: [
-      { label: "PDF to JPG",        href: "/?tool=pdf-to-jpg",   bg: "#D69E2E", letter: "J" },
-      { label: "PDF to WORD",       href: "/?tool=pdf-to-word",  bg: "#2B6CB0", letter: "W" },
-      { label: "PDF to POWERPOINT", href: "/?tool=pdf-to-ppt",   bg: "#C05621", letter: "P" },
-      { label: "PDF to EXCEL",      href: "/?tool=pdf-to-excel", bg: "#276749", letter: "X" },
-      { label: "PDF to PDF/A",      href: "/?tool=pdf-to-pdfa",  bg: "#D69E2E", letter: "A" },
+      { label: "PDF to JPG",        href: "/?tool=pdf-to-jpg",   bg: "#D69E2E", icon: <ImageIcon size={13} className="text-white" /> },
+      { label: "PDF to WORD",       href: "/?tool=pdf-to-word",  bg: "#2B6CB0", icon: <FileText size={13} className="text-white" /> },
+      { label: "PDF to POWERPOINT", href: "/?tool=pdf-to-ppt",   bg: "#C05621", icon: <Presentation size={13} className="text-white" /> },
+      { label: "PDF to EXCEL",      href: "/?tool=pdf-to-excel", bg: "#276749", icon: <FileSpreadsheet size={13} className="text-white" /> },
+      { label: "PDF to PDF/A",      href: "/?tool=pdf-to-pdfa",  bg: "#D69E2E", icon: <Archive size={13} className="text-white" /> },
     ],
   },
 ];
 
-function ToolBadge({ bg, letter }: { bg: string; letter: string }) {
+function ToolBadge({ bg, icon }: { bg: string; icon: React.ReactNode }) {
   return (
     <span
-      className="inline-flex items-center justify-center w-6 h-6 rounded-md text-white text-[11px] font-black shrink-0"
+      className="inline-flex items-center justify-center w-6 h-6 rounded-md shrink-0"
       style={{ backgroundColor: bg }}
     >
-      {letter}
+      {icon}
     </span>
   );
 }
@@ -115,12 +135,12 @@ export default function Navbar() {
   const [allToolsOpen, setAllToolsOpen] = useState(false);
   const [productsOpen, setProductsOpen] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
+  const navRef = useRef<HTMLElement>(null);
 
   // Close dropdowns on outside click
   useEffect(() => {
     function onDown(e: MouseEvent) {
-      const target = e.target as Element;
-      if (!target.closest("[data-navbar]")) {
+      if (navRef.current && !navRef.current.contains(e.target as Node)) {
         setConvertOpen(false);
         setAllToolsOpen(false);
         setProductsOpen(false);
@@ -132,7 +152,7 @@ export default function Navbar() {
 
   return (
     // ↓ relative so the mega menu can position absolutely within it
-    <header data-navbar className="w-full bg-white border-b border-gray-200 sticky top-0 z-40 shadow-sm relative">
+    <header ref={navRef} className="w-full bg-white border-b border-gray-200 sticky top-0 z-40 shadow-sm relative">
       <div className="max-w-screen-xl mx-auto px-4 sm:px-6">
         <div className="flex items-center h-14 gap-0">
 
@@ -224,7 +244,7 @@ export default function Navbar() {
 
       {/* ─── CONVERT PDF MEGA MENU — 2 columns, full-width ───────────────────── */}
       {convertOpen && (
-        <div className="absolute left-0 right-0 top-full bg-white border-b border-gray-200 shadow-2xl z-50" data-navbar>
+        <div className="absolute left-0 right-0 top-full bg-white border-b border-gray-200 shadow-2xl z-50">
           <div className="max-w-screen-xl mx-auto px-6 py-6">
             <div className="grid grid-cols-2 gap-8">
               {convertGroups.map((group) => (
@@ -240,7 +260,7 @@ export default function Navbar() {
                           onClick={() => setConvertOpen(false)}
                           className="flex items-center gap-2.5 group"
                         >
-                          <ToolBadge bg={tool.bg} letter={tool.letter} />
+                          <ToolBadge bg={tool.bg} icon={tool.icon} />
                           <span className="text-[14px] text-gray-700 group-hover:text-red-600 transition-colors font-medium">
                             {tool.label}
                           </span>
@@ -259,7 +279,6 @@ export default function Navbar() {
       {allToolsOpen && (
         <div
           className="absolute left-0 right-0 top-full bg-white border-b border-gray-200 shadow-2xl z-50"
-          data-navbar
         >
           <div className="max-w-screen-xl mx-auto px-6 py-6">
             <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-7 gap-6">
@@ -276,7 +295,7 @@ export default function Navbar() {
                           onClick={() => setAllToolsOpen(false)}
                           className="flex items-center gap-2 group"
                         >
-                          <ToolBadge bg={tool.bg} letter={tool.letter} />
+                          <ToolBadge bg={tool.bg} icon={tool.icon} />
                           <span className="text-[13px] text-gray-700 group-hover:text-red-600 transition-colors leading-snug">
                             {tool.label}
                           </span>
@@ -295,7 +314,6 @@ export default function Navbar() {
       {productsOpen && (
         <div
           className="absolute right-0 sm:right-6 top-full mt-2 w-[550px] max-w-[100vw] bg-white rounded-xl shadow-[0_20px_40px_-15px_rgba(0,0,0,0.15)] border border-gray-100 z-50 overflow-hidden"
-          data-navbar
         >
           <div className="flex flex-col sm:flex-row w-full">
             
@@ -380,7 +398,7 @@ export default function Navbar() {
                 <p className="text-[10px] font-bold tracking-widest text-gray-400 uppercase mb-2">{group.heading}</p>
                 {group.tools.map((tool) => (
                   <Link key={tool.href} href={tool.href} className="flex items-center gap-2.5 py-2 px-1 hover:bg-red-50 rounded-lg transition-colors">
-                    <ToolBadge bg={tool.bg} letter={tool.letter} />
+                    <ToolBadge bg={tool.bg} icon={tool.icon} />
                     <span className="text-sm text-gray-700">{tool.label}</span>
                   </Link>
                 ))}
