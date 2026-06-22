@@ -7,11 +7,14 @@ import Link from 'next/link';
 import PdfWorkspace from '@/components/PdfWorkspace';
 import AuthModal from '@/components/AuthModal';
 import { 
-  FileText, Sliders, Type, Lock, Unlock, Edit, 
-  Image as ImageIcon, RotateCw, Split, Layers, FolderClosed, 
-  Sparkles, ChevronRight, FileUp,
-  Camera, Printer, Table, Presentation, Grid, Scissors,
-  Edit3, ShieldAlert, Eye, FileSearch, ArrowLeftRight, Activity
+  FileText, Lock, Unlock, Edit3,
+  Image as ImageIcon, RotateCw, Split, Layers, FolderClosed,
+  Sparkles, ChevronRight, FileUp, Camera, Presentation, Grid,
+  Scissors, Sliders, ArrowLeftRight,
+  FileSpreadsheet, Code2, FileType, Archive, BookOpen, ShieldCheck,
+  FilePlus, Hash, Wrench, ArrowUpDown, Droplet, StickyNote, Info,
+  Crop, Eraser, PenTool, Scan, ClipboardList, EyeOff, Shield,
+  Search, Database, CheckSquare, Languages, Globe
 } from 'lucide-react';
 
 interface PdfTool {
@@ -150,14 +153,14 @@ function HomeInner() {
       name: 'Page Numbers', 
       desc: 'Add page numbers to your PDF document. Customize positioning, font size, and color.',
       category: 'Organize',
-      icon: <Grid className="w-8 h-8 text-red-500" />
+      icon: <Hash className="w-8 h-8 text-red-500" />
     },
     { 
       id: 'repair', 
       name: 'Repair PDF', 
       desc: 'Recover data from damaged or corrupted PDF files. Rebuild cross-references natively.',
       category: 'Organize',
-      icon: <Activity className="w-8 h-8 text-red-500" />
+      icon: <Wrench className="w-8 h-8 text-red-500" />
     },
     { 
       id: 'remove-pages', 
@@ -178,14 +181,14 @@ function HomeInner() {
       name: 'Add Blank Pages', 
       desc: 'Insert blank pages at specified positions within your PDF document.',
       category: 'Organize',
-      icon: <FileText className="w-8 h-8 text-red-500" />
+      icon: <FilePlus className="w-8 h-8 text-red-500" />
     },
     { 
       id: 'reverse-pages', 
       name: 'Reverse Pages', 
       desc: 'Reverse the page order of your entire PDF document instantly.',
       category: 'Organize',
-      icon: <ArrowLeftRight className="w-8 h-8 text-red-500" />
+      icon: <ArrowUpDown className="w-8 h-8 text-red-500" />
     },
 
     // 2. Convert to PDF
@@ -208,7 +211,7 @@ function HomeInner() {
       name: 'Excel to PDF', 
       desc: 'Make XLSX spreadsheets easy to read by converting them to PDF documents.',
       category: 'Convert',
-      icon: <Table className="w-8 h-8 text-red-500" />
+      icon: <FileSpreadsheet className="w-8 h-8 text-red-500" />
     },
     { 
       id: 'ppt-to-pdf', 
@@ -222,14 +225,14 @@ function HomeInner() {
       name: 'HTML to PDF', 
       desc: 'Convert web pages or raw HTML code into fully formatted PDF documents.',
       category: 'Convert',
-      icon: <Printer className="w-8 h-8 text-red-500" />
+      icon: <Code2 className="w-8 h-8 text-red-500" />
     },
     { 
       id: 'txt-to-pdf', 
       name: 'TXT to PDF', 
       desc: 'Convert plain text files into cleanly formatted PDF documents.',
       category: 'Convert',
-      icon: <FileText className="w-8 h-8 text-red-500" />
+      icon: <FileType className="w-8 h-8 text-red-500" />
     },
 
     // 3. Convert from PDF
@@ -252,7 +255,7 @@ function HomeInner() {
       name: 'PDF to Excel', 
       desc: 'Extract table grids from PDF and convert them to Excel spreadsheets (CSV/XLSX).',
       category: 'Convert',
-      icon: <Table className="w-8 h-8 text-red-500" />
+      icon: <FileSpreadsheet className="w-8 h-8 text-red-500" />
     },
     { 
       id: 'pdf-to-ppt', 
@@ -266,35 +269,35 @@ function HomeInner() {
       name: 'PDF to PDF/A', 
       desc: 'Standardize and validate your PDF files to meet PDF/A long-term archiving conformance rules.',
       category: 'Convert',
-      icon: <FileText className="w-8 h-8 text-red-500" />
+      icon: <Archive className="w-8 h-8 text-red-500" />
     },
     { 
       id: 'pdf-to-markdown', 
       name: 'PDF to Markdown', 
       desc: 'Convert your PDF documents into clean Markdown format for documentation and note-taking.',
       category: 'Convert',
-      icon: <FileText className="w-8 h-8 text-red-500" />
+      icon: <BookOpen className="w-8 h-8 text-red-500" />
     },
     { 
       id: 'validate-pdfa', 
       name: 'Validate PDF/A', 
       desc: 'Check if your PDF file meets PDF/A archival conformance standards.',
       category: 'Convert',
-      icon: <ShieldAlert className="w-8 h-8 text-red-500" />
+      icon: <ShieldCheck className="w-8 h-8 text-red-500" />
     },
     { 
       id: 'pdf-to-txt', 
       name: 'PDF to TXT', 
       desc: 'Extract plain text from your PDF documents for editing or analysis.',
       category: 'Convert',
-      icon: <FileText className="w-8 h-8 text-red-500" />
+      icon: <FileType className="w-8 h-8 text-red-500" />
     },
     { 
       id: 'pdf-to-html', 
       name: 'PDF to HTML', 
       desc: 'Convert your PDF documents into clean HTML web page format.',
       category: 'Convert',
-      icon: <Printer className="w-8 h-8 text-red-500" />
+      icon: <Globe className="w-8 h-8 text-red-500" />
     },
     { 
       id: 'pdf-to-png', 
@@ -317,42 +320,42 @@ function HomeInner() {
       name: 'Watermark PDF', 
       desc: 'Stamp text over your PDF in seconds. Choose typography, opacity and position.',
       category: 'Optimize',
-      icon: <Type className="w-8 h-8 text-red-500" />
+      icon: <Droplet className="w-8 h-8 text-red-500" />
     },
     { 
       id: 'header-footer', 
       name: 'Header & Footer', 
       desc: 'Add custom header and footer text to every page of your PDF document.',
       category: 'Optimize',
-      icon: <Type className="w-8 h-8 text-red-500" />
+      icon: <StickyNote className="w-8 h-8 text-red-500" />
     },
     { 
       id: 'metadata', 
       name: 'Edit Metadata', 
       desc: 'View and edit PDF document properties like title, author, subject, and keywords.',
       category: 'Optimize',
-      icon: <Edit className="w-8 h-8 text-red-500" />
+      icon: <Info className="w-8 h-8 text-red-500" />
     },
     { 
       id: 'crop', 
       name: 'Crop PDF', 
       desc: 'Trim and adjust PDF margin coordinates and bounding boxes client-side.',
       category: 'Optimize',
-      icon: <Scissors className="w-8 h-8 text-red-500" />
+      icon: <Crop className="w-8 h-8 text-red-500" />
     },
     { 
       id: 'remove-metadata', 
       name: 'Remove Metadata', 
       desc: 'Strip all document metadata including title, author, and subject.',
       category: 'Optimize',
-      icon: <ShieldAlert className="w-8 h-8 text-red-500" />
+      icon: <Eraser className="w-8 h-8 text-red-500" />
     },
     { 
       id: 'bates-numbering', 
       name: 'Bates Numbering', 
       desc: 'Add sequential Bates numbers to every page for legal document identification.',
       category: 'Optimize',
-      icon: <Type className="w-8 h-8 text-red-500" />
+      icon: <Hash className="w-8 h-8 text-red-500" />
     },
     { 
       id: 'n-up', 
@@ -366,7 +369,7 @@ function HomeInner() {
       name: 'Sign PDF', 
       desc: 'Sign a document and embed your signature. Sign your PDF document with drawn signatures.',
       category: 'Security',
-      icon: <Edit className="w-8 h-8 text-red-500" />
+      icon: <PenTool className="w-8 h-8 text-red-500" />
     },
     { 
       id: 'protect', 
@@ -408,21 +411,21 @@ function HomeInner() {
       name: 'OCR PDF', 
       desc: 'Recognize text inside scanned PDFs and export searchable text nodes.',
       category: 'Security',
-      icon: <FileSearch className="w-8 h-8 text-red-500" />
+      icon: <Scan className="w-8 h-8 text-red-500" />
     },
     { 
       id: 'forms', 
       name: 'Fill PDF Forms', 
       desc: 'Instantly fill out form text field values and download standard PDF documents.',
       category: 'Security',
-      icon: <Edit3 className="w-8 h-8 text-red-500" />
+      icon: <ClipboardList className="w-8 h-8 text-red-500" />
     },
     { 
       id: 'redact', 
       name: 'Redact PDF', 
       desc: 'Overlay secure black mask blocks on confidential coordinates to hide text patterns.',
       category: 'Security',
-      icon: <Eye className="w-8 h-8 text-red-500" />
+      icon: <EyeOff className="w-8 h-8 text-red-500" />
     },
     { 
       id: 'flatten-pdf', 
@@ -436,28 +439,28 @@ function HomeInner() {
       name: 'Set Permissions', 
       desc: 'Restrict printing, copying, or editing of your PDF document.',
       category: 'Security',
-      icon: <Lock className="w-8 h-8 text-red-500" />
+      icon: <Shield className="w-8 h-8 text-red-500" />
     },
     { 
       id: 'redact-by-search', 
       name: 'Redact by Search', 
       desc: 'Search for specific text across your PDF and redact all occurrences.',
       category: 'Security',
-      icon: <ShieldAlert className="w-8 h-8 text-red-500" />
+      icon: <Search className="w-8 h-8 text-red-500" />
     },
     { 
       id: 'form-extract', 
       name: 'Extract Form Data', 
       desc: 'Export filled PDF form field data to JSON format.',
       category: 'Security',
-      icon: <FileSearch className="w-8 h-8 text-red-500" />
+      icon: <Database className="w-8 h-8 text-red-500" />
     },
     { 
       id: 'validate-pdfua', 
       name: 'PDF/UA Validator', 
       desc: 'Check your PDF document for PDF/UA accessibility compliance.',
       category: 'Security',
-      icon: <ShieldAlert className="w-8 h-8 text-red-500" />
+      icon: <CheckSquare className="w-8 h-8 text-red-500" />
     },
     { 
       id: 'ai-summarizer', 
@@ -471,7 +474,7 @@ function HomeInner() {
       name: 'Translate PDF', 
       desc: 'Extract and translate English text documents to multilingual outline segments.',
       category: 'Security',
-      icon: <ArrowLeftRight className="w-8 h-8 text-red-500" />
+      icon: <Languages className="w-8 h-8 text-red-500" />
     }
   ];
 
