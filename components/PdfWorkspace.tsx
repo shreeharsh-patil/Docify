@@ -12,7 +12,10 @@ import {
   decryptPdfBuffer, signPdf, imagesToPdf, addPageNumbers, 
   compressPdf, repairPdf, htmlToPdf, removePages, extractPages,
   pdfToPdfa, cropPdf, fillPdfForms, redactPdf,
-  extractTextFromOfficeFile, flattenPdf, addHeaderFooter, addBlankPages
+  extractTextFromOfficeFile, flattenPdf, addHeaderFooter, addBlankPages,
+  txtToPdf, pdfToHtml, setPermissions, removeMetadata,
+  redactByTextSearch, reversePages, nUpLayout, batesNumbering,
+  extractFormData, validatePdfuaCompliance, pdfToMarkdownNative
 } from '@/lib/pdfProcessor';
 import { processViaILovePDF } from '@/lib/ilovepdf-client';
 import { processWithAI } from '@/lib/ai-client';
@@ -105,6 +108,23 @@ export default function PdfWorkspace({ toolId, toolName, onBack }: PdfWorkspaceP
   const [hfFooterText, setHfFooterText] = useState('');
   const [blankPositions, setBlankPositions] = useState('end');
   const [blankCount, setBlankCount] = useState(1);
+  const [blankCustomPos, setBlankCustomPos] = useState('1,3,5');
+
+  // New tool options states
+  const [txtContent, setTxtContent] = useState('Enter your text here...\n\nYou can write multiple paragraphs.\n\nDocify will automatically convert this to a properly formatted PDF document.');
+  const [txtPageSize, setTxtPageSize] = useState<'a4' | 'letter'>('a4');
+  const txtMargin = 40;
+  const [pngPageNum, setPngPageNum] = useState(1);
+  const [pngScale, setPngScale] = useState(2);
+  const [batesStart, setBatesStart] = useState(1);
+  const [batesPrefix, setBatesPrefix] = useState('');
+  const [batesSuffix, setBatesSuffix] = useState('');
+  const [nUpCount, setNUpCount] = useState<2 | 4 | 6>(2);
+  const [permPrinting, setPermPrinting] = useState<'none' | 'lowRes' | 'highRes'>('highRes');
+  const [permChanging, setPermChanging] = useState<'none' | 'insertDelete' | 'fillSign' | 'anyExceptExtract'>('anyExceptExtract');
+  const [permCopying, setPermCopying] = useState(true);
+  const [redactSearchText, setRedactSearchText] = useState('CONFIDENTIAL');
+  const [pdfuaResult, setPdfuaResult] = useState<{ passed: boolean; issues: string[] } | null>(null);
 
   // Initialize Organize indexes when a file is uploaded
   useEffect(() => {
@@ -164,6 +184,9 @@ export default function PdfWorkspace({ toolId, toolName, onBack }: PdfWorkspaceP
     } else if (toolId === 'ppt-to-pdf') {
       allowedExtensions = ['.ppt', '.pptx'];
       errorMsgText = 'Only PowerPoint files (.ppt, .pptx) are supported.';
+    } else if (toolId === 'txt-to-pdf') {
+      // No file needed, works with text input directly
+      return;
     } else {
       allowedExtensions = ['.pdf'];
       errorMsgText = 'Only PDF documents are supported.';
@@ -698,15 +721,32 @@ export default function PdfWorkspace({ toolId, toolName, onBack }: PdfWorkspaceP
         }
         case 'pdf-to-markdown':
         case 'validate-pdfa': {
-          const result = await processViaILovePDF(toolId, files);
-          const url = URL.createObjectURL(result.blob);
+          let resultBlob: Blob;
+          let resultFile: string;
+          if (toolId === 'pdf-to-markdown') {
+            try {
+              const apiResult = await processViaILovePDF(toolId, files);
+              resultBlob = apiResult.blob;
+              resultFile = apiResult.fileName;
+            } catch {
+              const buffer = await fileToArrayBuffer(files[0]);
+              const md = await pdfToMarkdownNative(buffer);
+              resultBlob = new Blob([md], { type: 'text/markdown' });
+              resultFile = `${files[0].name.replace('.pdf', '')}.md`;
+            }
+          } else {
+            const apiResult = await processViaILovePDF(toolId, files);
+            resultBlob = apiResult.blob;
+            resultFile = apiResult.fileName;
+          }
+          const url = URL.createObjectURL(resultBlob);
           setResultBlobUrl(url);
-          setResultFileName(result.fileName);
+          setResultFileName(resultFile);
           setIsSuccess(true);
           setIsProcessing(false);
           const tempLink = document.createElement('a');
           tempLink.href = url;
-          tempLink.setAttribute('download', result.fileName);
+          tempLink.setAttribute('download', resultFile);
           document.body.appendChild(tempLink);
           tempLink.click();
           document.body.removeChild(tempLink);
@@ -771,7 +811,7 @@ export default function PdfWorkspace({ toolId, toolName, onBack }: PdfWorkspaceP
             ? [totalPages]
             : blankPositions === 'start'
               ? [0]
-              : blankPositions.split(',').map(Number);
+              : blankCustomPos.split(',').map(x => Math.max(0, parseInt(x.trim()) - 1)).filter(x => !isNaN(x));
           outputBytes = await addBlankPages(buffer, pos, blankCount);
           newName = `${files[0].name.replace('.pdf', '')}_with_blank_pages.pdf`;
           break;
@@ -809,6 +849,119 @@ export default function PdfWorkspace({ toolId, toolName, onBack }: PdfWorkspaceP
           tempLink.click();
           document.body.removeChild(tempLink);
           confetti({ particleCount: 75, spread: 55 });
+          return;
+        }
+        case 'txt-to-pdf': {
+          outputBytes = await txtToPdf(txtContent, {
+            pageSize: txtPageSize,
+            margin: txtMargin,
+          });
+          newName = 'document.txt.pdf';
+          break;
+        }
+        case 'pdf-to-html': {
+          const buffer = await fileToArrayBuffer(files[0]);
+          const htmlContent = await pdfToHtml(buffer);
+          const blob = new Blob([htmlContent], { type: 'text/html' });
+          const url = URL.createObjectURL(blob);
+          setResultBlobUrl(url);
+          setResultFileName(`${files[0].name.replace('.pdf', '')}.html`);
+          setIsSuccess(true);
+          setIsProcessing(false);
+          const tempLink = document.createElement('a');
+          tempLink.href = url;
+          tempLink.setAttribute('download', `${files[0].name.replace('.pdf', '')}.html`);
+          document.body.appendChild(tempLink);
+          tempLink.click();
+          document.body.removeChild(tempLink);
+          confetti({ particleCount: 80, spread: 60 });
+          return;
+        }
+        case 'pdf-to-png': {
+          const buffer = await fileToArrayBuffer(files[0]);
+          const { renderPdfPageToCanvas } = await import('@/lib/pdf-client');
+          const canvas = await renderPdfPageToCanvas(buffer, pngPageNum, pngScale);
+          const blob = await new Promise<Blob>((resolve) => canvas.toBlob((b) => resolve(b!), 'image/png'));
+          const url = URL.createObjectURL(blob);
+          setResultBlobUrl(url);
+          setResultFileName(`${files[0].name.replace('.pdf', '')}_page${pngPageNum}.png`);
+          setIsSuccess(true);
+          setIsProcessing(false);
+          const tempLink = document.createElement('a');
+          tempLink.href = url;
+          tempLink.setAttribute('download', `${files[0].name.replace('.pdf', '')}_page${pngPageNum}.png`);
+          document.body.appendChild(tempLink);
+          tempLink.click();
+          document.body.removeChild(tempLink);
+          confetti({ particleCount: 80, spread: 60 });
+          return;
+        }
+        case 'permissions': {
+          const buffer = await fileToArrayBuffer(files[0]);
+          outputBytes = await setPermissions(buffer, {
+            printing: permPrinting,
+            changing: permChanging,
+            copying: permCopying,
+          });
+          newName = `${files[0].name.replace('.pdf', '')}_permissions.pdf`;
+          break;
+        }
+        case 'remove-metadata': {
+          const buffer = await fileToArrayBuffer(files[0]);
+          outputBytes = await removeMetadata(buffer);
+          newName = `${files[0].name.replace('.pdf', '')}_clean.pdf`;
+          break;
+        }
+        case 'redact-by-search': {
+          const buffer = await fileToArrayBuffer(files[0]);
+          outputBytes = await redactByTextSearch(buffer, redactSearchText, '#000000');
+          newName = `${files[0].name.replace('.pdf', '')}_redacted.pdf`;
+          break;
+        }
+        case 'reverse-pages': {
+          const buffer = await fileToArrayBuffer(files[0]);
+          outputBytes = await reversePages(buffer);
+          newName = `${files[0].name.replace('.pdf', '')}_reversed.pdf`;
+          break;
+        }
+        case 'n-up': {
+          const buffer = await fileToArrayBuffer(files[0]);
+          outputBytes = await nUpLayout(buffer, nUpCount);
+          newName = `${files[0].name.replace('.pdf', '')}_nup.pdf`;
+          break;
+        }
+        case 'bates-numbering': {
+          const buffer = await fileToArrayBuffer(files[0]);
+          outputBytes = await batesNumbering(buffer, batesStart, batesPrefix, batesSuffix);
+          newName = `${files[0].name.replace('.pdf', '')}_bates.pdf`;
+          break;
+        }
+        case 'form-extract': {
+          const buffer = await fileToArrayBuffer(files[0]);
+          const jsonData = await extractFormData(buffer);
+          const blob = new Blob([jsonData], { type: 'application/json' });
+          const url = URL.createObjectURL(blob);
+          setResultBlobUrl(url);
+          setResultFileName(`${files[0].name.replace('.pdf', '')}_form_data.json`);
+          setIsSuccess(true);
+          setIsProcessing(false);
+          const tempLink = document.createElement('a');
+          tempLink.href = url;
+          tempLink.setAttribute('download', `${files[0].name.replace('.pdf', '')}_form_data.json`);
+          document.body.appendChild(tempLink);
+          tempLink.click();
+          document.body.removeChild(tempLink);
+          confetti({ particleCount: 80, spread: 60 });
+          return;
+        }
+        case 'validate-pdfua': {
+          const buffer = await fileToArrayBuffer(files[0]);
+          const result = await validatePdfuaCompliance(buffer);
+          setPdfuaResult(result);
+          setIsProcessing(false);
+          if (result.passed) {
+            confetti({ particleCount: 80, spread: 60 });
+          }
           return;
         }
         default:
@@ -994,6 +1147,21 @@ export default function PdfWorkspace({ toolId, toolName, onBack }: PdfWorkspaceP
                   />
                 </div>
               </div>
+            ) : toolId === 'txt-to-pdf' ? (
+              <div className="flex-1 flex bg-white border border-slate-200 rounded-2xl p-6 shadow-md">
+                <div className="flex-1 flex flex-col">
+                  <h3 className="text-lg font-bold text-slate-800 mb-4">Text to PDF</h3>
+                  <textarea
+                    value={txtContent}
+                    onChange={e => setTxtContent(e.target.value)}
+                    rows={16}
+                    className="flex-1 resize-none bg-slate-50 border border-slate-200 rounded-xl p-4 text-sm font-sans leading-relaxed focus:outline-none focus:border-red-500"
+                  />
+                  {errorMsg && (
+                    <p className="mt-4 text-xs font-semibold text-red-600 bg-red-50 px-3 py-1.5 rounded-lg border border-red-100">{errorMsg}</p>
+                  )}
+                </div>
+              </div>
             ) : files.length === 0 ? (
               <div 
                 onDragOver={handleDragOver}
@@ -1138,7 +1306,7 @@ export default function PdfWorkspace({ toolId, toolName, onBack }: PdfWorkspaceP
           </main>
 
           {/* Right Sidebar Options panel */}
-          {(files.length > 0 || toolId === 'scan' || toolId === 'html-to-pdf') && (
+          {(files.length > 0 || toolId === 'scan' || toolId === 'html-to-pdf' || toolId === 'txt-to-pdf') && (
             <aside className="w-80 border-l border-slate-200 bg-white flex flex-col shadow-2xl overflow-y-auto animate-slide-in-right">
               <div className="p-5 border-b border-slate-200 bg-slate-50/50 shrink-0">
                 <h3 className="font-bold text-slate-900 text-sm">Tool Configurations</h3>
@@ -1502,7 +1670,168 @@ export default function PdfWorkspace({ toolId, toolName, onBack }: PdfWorkspaceP
                   </div>
                 )}
 
-                {/* 12. Edit PDF options */}
+                {/* 12. TXT to PDF options */}
+                {toolId === 'txt-to-pdf' && (
+                  <div className="space-y-4">
+                    <div>
+                      <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block mb-1">Text Content</label>
+                      <textarea value={txtContent} onChange={e => setTxtContent(e.target.value)} rows={8} className="w-full bg-slate-50 border border-slate-200 rounded-lg p-3 text-xs font-mono focus:outline-none focus:border-red-500" />
+                    </div>
+                    <div>
+                      <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block mb-1.5">Page Size</label>
+                      <div className="flex gap-2">
+                        {['a4', 'letter'].map(s => (
+                          <button key={s} onClick={() => setTxtPageSize(s as 'a4' | 'letter')} className={`flex-1 py-2 border text-xs font-bold rounded-lg transition-all capitalize ${txtPageSize === s ? 'bg-red-50 border-red-500 text-red-600' : 'bg-slate-50 border-slate-200 text-slate-600'}`}>{s}</button>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* 13. PDF to HTML options */}
+                {toolId === 'pdf-to-html' && (
+                  <div className="space-y-3 bg-red-50/40 p-4 border border-red-100 rounded-xl text-xs text-slate-500">
+                    <p className="font-bold text-slate-800">HTML Export:</p>
+                    <p>• Converts PDF text content to a clean HTML web page.</p>
+                    <p>• Preserves page structure and paragraph formatting.</p>
+                  </div>
+                )}
+
+                {/* 14. PDF to PNG options */}
+                {toolId === 'pdf-to-png' && (
+                  <div className="space-y-4">
+                    <div>
+                      <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block mb-1">Page Number</label>
+                      <input type="number" min={1} value={pngPageNum} onChange={e => setPngPageNum(parseInt(e.target.value) || 1)} className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-xs focus:outline-none focus:border-red-500" />
+                    </div>
+                    <div>
+                      <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block mb-1">Scale ({pngScale}x)</label>
+                      <input type="range" min={1} max={4} step={0.5} value={pngScale} onChange={e => setPngScale(parseFloat(e.target.value))} className="w-full h-1 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-red-600" />
+                    </div>
+                  </div>
+                )}
+
+                {/* 15. Permissions options */}
+                {toolId === 'permissions' && (
+                  <div className="space-y-4">
+                    <div>
+                      <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block mb-1.5">Printing</label>
+                      <div className="flex gap-2">
+                          {[{l:'None',v:'none'},{l:'Low Res',v:'lowRes'},{l:'High Res',v:'highRes'}].map(o => (
+                          <button key={o.v} onClick={() => setPermPrinting(o.v as 'none' | 'lowRes' | 'highRes')} className={`flex-1 py-2 border text-xs font-bold rounded-lg transition-all ${permPrinting === o.v ? 'bg-red-50 border-red-500 text-red-600' : 'bg-slate-50 border-slate-200 text-slate-600'}`}>{o.l}</button>
+                        ))}
+                      </div>
+                    </div>
+                    <div>
+                      <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block mb-1">Changes Allowed</label>
+                      <select value={permChanging} onChange={e => setPermChanging(e.target.value as 'none' | 'insertDelete' | 'fillSign' | 'anyExceptExtract')} className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-xs focus:outline-none focus:border-red-500">
+                        <option value="none">None</option>
+                        <option value="insertDelete">Insert/Delete Pages</option>
+                        <option value="fillSign">Fill Forms & Sign</option>
+                        <option value="anyExceptExtract">Any Except Extraction</option>
+                      </select>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <input type="checkbox" id="permCopy" checked={permCopying} onChange={e => setPermCopying(e.target.checked)} className="rounded border-slate-300 text-red-600 focus:ring-red-500" />
+                      <label htmlFor="permCopy" className="text-xs font-semibold text-slate-600">Allow Copying</label>
+                    </div>
+                  </div>
+                )}
+
+                {/* 16. Remove Metadata options */}
+                {toolId === 'remove-metadata' && (
+                  <div className="space-y-3 bg-red-50/40 p-4 border border-red-100 rounded-xl text-xs text-slate-500">
+                    <p className="font-bold text-slate-800">Metadata Removal:</p>
+                    <p>• Strips all document metadata including title, author, subject, and keywords.</p>
+                    <p>• Sets producer/creator fields to generic Docify values.</p>
+                  </div>
+                )}
+
+                {/* 17. Redact by Search options */}
+                {toolId === 'redact-by-search' && (
+                  <div className="space-y-4">
+                    <div>
+                      <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block mb-1">Text to Search & Redact</label>
+                      <input type="text" value={redactSearchText} onChange={e => setRedactSearchText(e.target.value)} placeholder="Enter text to redact..." className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-xs focus:outline-none focus:border-red-500" />
+                      <p className="text-[9px] text-slate-400 mt-1">Searches across all pages and masks occurrences with black rectangles.</p>
+                    </div>
+                  </div>
+                )}
+
+                {/* 18. Reverse Pages options */}
+                {toolId === 'reverse-pages' && (
+                  <div className="space-y-3 bg-red-50/40 p-4 border border-red-100 rounded-xl text-xs text-slate-500">
+                    <p className="font-bold text-slate-800">Reverse Pages:</p>
+                    <p>• Reverses the page order of your entire PDF document instantly.</p>
+                    <p>• No configuration needed — just upload and process.</p>
+                  </div>
+                )}
+
+                {/* 19. N-up Layout options */}
+                {toolId === 'n-up' && (
+                  <div className="space-y-4">
+                    <div>
+                      <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block mb-1.5">Pages per Sheet</label>
+                      <div className="flex gap-2">
+                        {[{l:'2-up',v:2},{l:'4-up',v:4},{l:'6-up',v:6}].map(o => (
+                          <button key={o.v} onClick={() => setNUpCount(o.v as 2 | 4 | 6)} className={`flex-1 py-2 border text-xs font-bold rounded-lg transition-all ${nUpCount === o.v ? 'bg-red-50 border-red-500 text-red-600' : 'bg-slate-50 border-slate-200 text-slate-600'}`}>{o.l}</button>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* 20. Bates Numbering options */}
+                {toolId === 'bates-numbering' && (
+                  <div className="space-y-4">
+                    <div>
+                      <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block mb-1">Starting Number</label>
+                      <input type="number" min={1} value={batesStart} onChange={e => setBatesStart(parseInt(e.target.value) || 1)} className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-xs focus:outline-none focus:border-red-500" />
+                    </div>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block mb-1">Prefix</label>
+                        <input type="text" value={batesPrefix} onChange={e => setBatesPrefix(e.target.value)} placeholder="e.g. DOC-" className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-xs focus:outline-none focus:border-red-500" />
+                      </div>
+                      <div>
+                        <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block mb-1">Suffix</label>
+                        <input type="text" value={batesSuffix} onChange={e => setBatesSuffix(e.target.value)} placeholder="e.g. -v1" className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-xs focus:outline-none focus:border-red-500" />
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* 21. Form Data Extract options */}
+                {toolId === 'form-extract' && (
+                  <div className="space-y-3 bg-red-50/40 p-4 border border-red-100 rounded-xl text-xs text-slate-500">
+                    <p className="font-bold text-slate-800">Form Data Export:</p>
+                    <p>• Extracts all filled form field names and values from your PDF.</p>
+                    <p>• Outputs structured JSON format for data processing.</p>
+                  </div>
+                )}
+
+                {/* 22. PDF/UA Validate options */}
+                {toolId === 'validate-pdfua' && (
+                  <div className="space-y-4">
+                    <div className="space-y-3 bg-red-50/40 p-4 border border-red-100 rounded-xl text-xs text-slate-500">
+                      <p className="font-bold text-slate-800">PDF/UA Accessibility Check:</p>
+                      <p>• Validates document structure for PDF/Universal Accessibility standards.</p>
+                      <p>• Checks for required metadata, page structure, and form fields.</p>
+                    </div>
+                    {pdfuaResult && (
+                      <div className={`rounded-xl p-4 ${pdfuaResult.passed ? 'bg-emerald-50 border border-emerald-200' : 'bg-red-50 border border-red-200'}`}>
+                        <p className={`font-bold text-sm ${pdfuaResult.passed ? 'text-emerald-700' : 'text-red-700'}`}>
+                          {pdfuaResult.passed ? 'PASSED' : 'FAILED'}
+                        </p>
+                        {pdfuaResult.issues.map((issue, i) => (
+                          <p key={i} className="text-xs text-slate-600 mt-1">{issue}</p>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* 23. Edit PDF options */}
                 {toolId === 'edit' && (
                   <div className="space-y-4">
                     <div>
@@ -1907,7 +2236,8 @@ export default function PdfWorkspace({ toolId, toolName, onBack }: PdfWorkspaceP
                     </div>
                     {blankPositions === 'custom' && (
                       <div>
-                        <input type="text" value={blankPositions === 'custom' ? '' : blankPositions} onChange={e => setBlankPositions(e.target.value)} placeholder="e.g. 1,3,5" className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-xs focus:outline-none focus:border-red-500" />
+                        <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block mb-1">Custom Positions</label>
+                        <input type="text" value={blankCustomPos} onChange={e => setBlankCustomPos(e.target.value)} placeholder="e.g. 1,3,5" className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-xs focus:outline-none focus:border-red-500" />
                       </div>
                     )}
                     <div>

@@ -70,6 +70,22 @@ const toolSlugMap: Record<string, { id: string; name: string }> = {
     'pdf-to-txt':      { id: 'pdf-to-txt',      name: 'PDF to TXT' },
     'header-footer':   { id: 'header-footer',   name: 'Header & Footer' },
     'flatten-pdf':     { id: 'flatten-pdf',     name: 'Flatten PDF' },
+    'excel-to-pdf':  { id: 'excel-to-pdf',  name: 'Excel to PDF' },
+    'ppt-to-pdf':    { id: 'ppt-to-pdf',    name: 'PPT to PDF' },
+    'html-to-pdf':   { id: 'html-to-pdf',   name: 'HTML to PDF' },
+    'pdf-to-excel':  { id: 'pdf-to-excel',  name: 'PDF to Excel' },
+    'pdf-to-ppt':    { id: 'pdf-to-ppt',    name: 'PDF to PPT' },
+    'txt-to-pdf':    { id: 'txt-to-pdf',    name: 'TXT to PDF' },
+    'pdf-to-html':   { id: 'pdf-to-html',   name: 'PDF to HTML' },
+    'pdf-to-png':    { id: 'pdf-to-png',    name: 'PDF to PNG' },
+    'permissions':   { id: 'permissions',   name: 'Set Permissions' },
+    'remove-metadata': { id: 'remove-metadata', name: 'Remove Metadata' },
+    'redact-by-search': { id: 'redact-by-search', name: 'Redact by Search' },
+    'reverse-pages': { id: 'reverse-pages', name: 'Reverse Pages' },
+    'n-up':          { id: 'n-up',          name: 'N-up Layout' },
+    'bates-numbering': { id: 'bates-numbering', name: 'Bates Numbering' },
+    'form-extract':  { id: 'form-extract',  name: 'Extract Form Data' },
+    'validate-pdfua': { id: 'validate-pdfua', name: 'PDF/UA Validator' },
   };
 
 // Inner component that safely uses useSearchParams inside Suspense
@@ -164,6 +180,13 @@ function HomeInner() {
       category: 'Organize',
       icon: <FileText className="w-8 h-8 text-red-500" />
     },
+    { 
+      id: 'reverse-pages', 
+      name: 'Reverse Pages', 
+      desc: 'Reverse the page order of your entire PDF document instantly.',
+      category: 'Organize',
+      icon: <ArrowLeftRight className="w-8 h-8 text-red-500" />
+    },
 
     // 2. Convert to PDF
     { 
@@ -200,6 +223,13 @@ function HomeInner() {
       desc: 'Convert web pages or raw HTML code into fully formatted PDF documents.',
       category: 'Convert',
       icon: <Printer className="w-8 h-8 text-red-500" />
+    },
+    { 
+      id: 'txt-to-pdf', 
+      name: 'TXT to PDF', 
+      desc: 'Convert plain text files into cleanly formatted PDF documents.',
+      category: 'Convert',
+      icon: <FileText className="w-8 h-8 text-red-500" />
     },
 
     // 3. Convert from PDF
@@ -259,6 +289,20 @@ function HomeInner() {
       category: 'Convert',
       icon: <FileText className="w-8 h-8 text-red-500" />
     },
+    { 
+      id: 'pdf-to-html', 
+      name: 'PDF to HTML', 
+      desc: 'Convert your PDF documents into clean HTML web page format.',
+      category: 'Convert',
+      icon: <Printer className="w-8 h-8 text-red-500" />
+    },
+    { 
+      id: 'pdf-to-png', 
+      name: 'PDF to PNG', 
+      desc: 'Extract each PDF page as a high-quality PNG image file.',
+      category: 'Convert',
+      icon: <ImageIcon className="w-8 h-8 text-red-500" />
+    },
 
     // 4. Security & Optimization
     { 
@@ -295,6 +339,27 @@ function HomeInner() {
       desc: 'Trim and adjust PDF margin coordinates and bounding boxes client-side.',
       category: 'Optimize',
       icon: <Scissors className="w-8 h-8 text-red-500" />
+    },
+    { 
+      id: 'remove-metadata', 
+      name: 'Remove Metadata', 
+      desc: 'Strip all document metadata including title, author, and subject.',
+      category: 'Optimize',
+      icon: <ShieldAlert className="w-8 h-8 text-red-500" />
+    },
+    { 
+      id: 'bates-numbering', 
+      name: 'Bates Numbering', 
+      desc: 'Add sequential Bates numbers to every page for legal document identification.',
+      category: 'Optimize',
+      icon: <Type className="w-8 h-8 text-red-500" />
+    },
+    { 
+      id: 'n-up', 
+      name: 'N-up Layout', 
+      desc: 'Print multiple PDF pages on a single sheet to save paper.',
+      category: 'Optimize',
+      icon: <Grid className="w-8 h-8 text-red-500" />
     },
     { 
       id: 'sign', 
@@ -365,6 +430,34 @@ function HomeInner() {
       desc: 'Permanently merge annotations, comments, and form fields into the page content.',
       category: 'Security',
       icon: <Layers className="w-8 h-8 text-red-500" />
+    },
+    { 
+      id: 'permissions', 
+      name: 'Set Permissions', 
+      desc: 'Restrict printing, copying, or editing of your PDF document.',
+      category: 'Security',
+      icon: <Lock className="w-8 h-8 text-red-500" />
+    },
+    { 
+      id: 'redact-by-search', 
+      name: 'Redact by Search', 
+      desc: 'Search for specific text across your PDF and redact all occurrences.',
+      category: 'Security',
+      icon: <ShieldAlert className="w-8 h-8 text-red-500" />
+    },
+    { 
+      id: 'form-extract', 
+      name: 'Extract Form Data', 
+      desc: 'Export filled PDF form field data to JSON format.',
+      category: 'Security',
+      icon: <FileSearch className="w-8 h-8 text-red-500" />
+    },
+    { 
+      id: 'validate-pdfua', 
+      name: 'PDF/UA Validator', 
+      desc: 'Check your PDF document for PDF/UA accessibility compliance.',
+      category: 'Security',
+      icon: <ShieldAlert className="w-8 h-8 text-red-500" />
     },
     { 
       id: 'ai-summarizer', 

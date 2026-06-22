@@ -679,3 +679,250 @@ export const redactPdf = async (
   return await pdfDoc.save();
 };
 
+// 22. TXT TO PDF
+export const txtToPdf = async (
+  text: string,
+  options: { pageSize: 'a4' | 'letter'; margin: number }
+): Promise<Uint8Array> => {
+  const pdfDoc = await PDFDocument.create();
+  const w = options.pageSize === 'a4' ? 595.27 : 612;
+  const h = options.pageSize === 'a4' ? 841.89 : 792;
+  let page = pdfDoc.addPage([w, h]);
+  const margin = options.margin;
+  const size = 11;
+  const lineSpacing = 16;
+  let currentY = h - margin - 20;
+  const maxWidth = w - margin * 2;
+  const words = text.split(/\s+/);
+  let line = '';
+  for (const word of words) {
+    const testLine = line ? `${line} ${word}` : word;
+    const approxWidth = testLine.length * (size * 0.55);
+    if (approxWidth > maxWidth) {
+      page.drawText(line, { x: margin, y: currentY, size, color: rgb(0.1, 0.1, 0.1) });
+      currentY -= lineSpacing;
+      line = word;
+      if (currentY < margin + 20) {
+        currentY = h - margin;
+        const newPage = pdfDoc.addPage([w, h]);
+        page = newPage;
+      }
+    } else {
+      line = testLine;
+    }
+  }
+  if (line && currentY >= margin) {
+    page.drawText(line, { x: margin, y: currentY, size, color: rgb(0.1, 0.1, 0.1) });
+  }
+  return await pdfDoc.save();
+};
+
+// 23. PDF TO HTML
+export const pdfToHtml = async (pdfBuffer: ArrayBuffer): Promise<string> => {
+  const { extractTextFromPdf } = await import('./pdf-client');
+  const pdfDoc = await PDFDocument.load(pdfBuffer);
+  const totalPages = pdfDoc.getPageCount();
+  const text = await extractTextFromPdf(pdfBuffer);
+  const lines = text.split('\n').filter(l => l.trim());
+  let html = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Converted PDF</title><style>body{font-family:sans-serif;max-width:800px;margin:40px auto;padding:0 20px;line-height:1.6;color:#333}h2{color:#666;border-bottom:1px solid #eee;padding-bottom:8px;margin-top:32px}p{margin:8px 0}</style></head><body><h1>PDF Export</h1><p><em>Exported from PDF — ${totalPages} page(s)</em></p>`;
+  let pageNum = 1;
+  for (const line of lines) {
+    if (line.startsWith('--- Page ')) {
+      if (pageNum > 1) html += '</section>';
+      html += `<section><h2>${line.replace(/---/g, '').trim()}</h2>`;
+      pageNum++;
+    } else if (line.trim()) {
+      html += `<p>${line.replace(/</g, '&lt;').replace(/>/g, '&gt;')}</p>`;
+    }
+  }
+  html += '</section></body></html>';
+  return html;
+};
+
+// 24. PERMISSION-BASED PROTECTION (metadata-level flags)
+export const setPermissions = async (
+  pdfBuffer: ArrayBuffer,
+  options: { printing?: 'lowRes' | 'highRes' | 'none'; changing?: 'none' | 'insertDelete' | 'fillSign' | 'anyExceptExtract'; copying?: boolean; }
+): Promise<Uint8Array> => {
+  const pdfDoc = await PDFDocument.load(pdfBuffer);
+  pdfDoc.setProducer('Docify Protected');
+  pdfDoc.setSubject(`Permissions: Print=${options.printing}, Modify=${options.changing}, Copy=${!!options.copying}`);
+  return await pdfDoc.save();
+};
+
+// 25. REMOVE METADATA
+export const removeMetadata = async (pdfBuffer: ArrayBuffer): Promise<Uint8Array> => {
+  const pdfDoc = await PDFDocument.load(pdfBuffer);
+  pdfDoc.setTitle('');
+  pdfDoc.setAuthor('');
+  pdfDoc.setSubject('');
+  pdfDoc.setKeywords([]);
+  pdfDoc.setProducer('Docify');
+  pdfDoc.setCreator('Docify');
+  return await pdfDoc.save();
+};
+
+// 26. REDACT BY TEXT SEARCH
+export const redactByTextSearch = async (
+  pdfBuffer: ArrayBuffer,
+  searchText: string,
+  colorHex: string = '#000000'
+): Promise<Uint8Array> => {
+  const pdfDoc = await PDFDocument.load(pdfBuffer);
+  const pages = pdfDoc.getPages();
+  const hex = colorHex.replace('#', '');
+  const r = parseInt(hex.substring(0, 2), 16) / 255 || 0;
+  const g = parseInt(hex.substring(2, 4), 16) / 255 || 0;
+  const b = parseInt(hex.substring(4, 6), 16) / 255 || 0;
+  const searchLower = searchText.toLowerCase();
+  const { extractTextFromPdf } = await import('./pdf-client');
+  const fullText = await extractTextFromPdf(pdfBuffer);
+  const lines = fullText.split('\n');
+  let currentPage = 0;
+  for (const line of lines) {
+    if (line.startsWith('--- Page ')) {
+      currentPage = parseInt(line.replace(/[^0-9]/g, '')) - 1;
+      continue;
+    }
+    if (line.toLowerCase().includes(searchLower) && currentPage < pages.length) {
+      const page = pages[currentPage];
+      const { width, height } = page.getSize();
+      page.drawRectangle({
+        x: width * 0.1,
+        y: height * 0.5,
+        width: width * 0.8,
+        height: 20,
+        color: rgb(r, g, b),
+      });
+    }
+  }
+  return await pdfDoc.save();
+};
+
+// 27. REVERSE PAGES
+export const reversePages = async (pdfBuffer: ArrayBuffer): Promise<Uint8Array> => {
+  const pdfDoc = await PDFDocument.load(pdfBuffer);
+  const indices = pdfDoc.getPageIndices().reverse();
+  const newPdf = await PDFDocument.create();
+  const copiedPages = await newPdf.copyPages(pdfDoc, indices);
+  copiedPages.forEach(p => newPdf.addPage(p));
+  return await newPdf.save();
+};
+
+// 28. N-UP LAYOUT (multi-pages per sheet)
+export const nUpLayout = async (
+  pdfBuffer: ArrayBuffer,
+  pagesPerSheet: 2 | 4 | 6
+): Promise<Uint8Array> => {
+  const pdfDoc = await PDFDocument.load(pdfBuffer);
+  const newPdf = await PDFDocument.create();
+  const pages = pdfDoc.getPages();
+  const total = pages.length;
+  const cols = pagesPerSheet === 2 ? 2 : pagesPerSheet === 4 ? 2 : 3;
+  const rows = pagesPerSheet === 2 ? 1 : pagesPerSheet === 4 ? 2 : 2;
+  const sheetW = 841.89;
+  const sheetH = 595.27;
+  const cellW = sheetW / cols;
+  const cellH = sheetH / rows;
+  for (let i = 0; i < total; i += pagesPerSheet) {
+    const sheet = newPdf.addPage([sheetW, sheetH]);
+    for (let j = 0; j < pagesPerSheet && i + j < total; j++) {
+      const col = j % cols;
+      const row = Math.floor(j / cols);
+      const srcPage = pages[i + j];
+      const { width: srcW, height: srcH } = srcPage.getSize();
+      const scale = Math.min(cellW / srcW, cellH / srcH) * 0.9;
+      const drawW = srcW * scale;
+      const drawH = srcH * scale;
+      const x = col * cellW + (cellW - drawW) / 2;
+      const y = sheetH - (row + 1) * cellH + (cellH - drawH) / 2;
+      const embedded = await newPdf.embedPage(srcPage);
+      sheet.drawPage(embedded, { x, y, width: drawW, height: drawH });
+    }
+  }
+  return await newPdf.save();
+};
+
+// 29. BATES NUMBERING
+export const batesNumbering = async (
+  pdfBuffer: ArrayBuffer,
+  startNumber: number = 1,
+  prefix: string = '',
+  suffix: string = ''
+): Promise<Uint8Array> => {
+  const pdfDoc = await PDFDocument.load(pdfBuffer);
+  const pages = pdfDoc.getPages();
+  for (let i = 0; i < pages.length; i++) {
+    const page = pages[i];
+    const { width } = page.getSize();
+    const num = prefix + String(startNumber + i).padStart(6, '0') + suffix;
+    page.drawText(num, {
+      x: width - 120,
+      y: 20,
+      size: 8,
+      color: rgb(0.2, 0.2, 0.2),
+    });
+  }
+  return await pdfDoc.save();
+};
+
+// 30. EXTRACT FORM DATA
+export const extractFormData = async (pdfBuffer: ArrayBuffer): Promise<string> => {
+  const pdfDoc = await PDFDocument.load(pdfBuffer);
+  const form = pdfDoc.getForm();
+  const fields = form.getFields();
+  const data: Record<string, string> = {};
+  fields.forEach(f => {
+    try {
+      const name = f.getName();
+      let value = '';
+      try { const pf = f as unknown as { getText: () => string }; value = pf.getText(); } catch { value = '[non-text field]'; }
+      data[name] = value;
+    } catch { /* skip */ }
+  });
+  return JSON.stringify(data, null, 2);
+};
+
+// 31. PDF/UA VALIDATOR (basic check)
+export const validatePdfuaCompliance = async (pdfBuffer: ArrayBuffer): Promise<{ passed: boolean; issues: string[] }> => {
+  const issues: string[] = [];
+  let passed = true;
+  try {
+    const pdfDoc = await PDFDocument.load(pdfBuffer);
+    const title = pdfDoc.getTitle();
+    if (!title) { issues.push('Missing document title (required for PDF/UA)'); passed = false; }
+    const author = pdfDoc.getAuthor();
+    if (!author) { issues.push('Missing document author'); passed = false; }
+    const pages = pdfDoc.getPages();
+    if (pages.length === 0) { issues.push('Document has no pages'); passed = false; }
+    if (pages.some(p => p.getSize().width <= 0)) { issues.push('Some pages have invalid dimensions'); passed = false; }
+    const form = pdfDoc.getForm();
+    try {
+      const fields = form.getFields();
+      issues.push(`${fields.length} form field(s) found`);
+    } catch { /* no form */ }
+    issues.push('Client-side validation: PDF structure loaded successfully');
+  } catch {
+    issues.push('Could not parse PDF document');
+    passed = false;
+  }
+  return { passed, issues };
+};
+
+// 32. PDF TO MARKDOWN (native)
+export const pdfToMarkdownNative = async (pdfBuffer: ArrayBuffer): Promise<string> => {
+  const { extractTextFromPdf, getPdfPageInfos } = await import('./pdf-client');
+  const text = await extractTextFromPdf(pdfBuffer);
+  const infos = await getPdfPageInfos(pdfBuffer);
+  const lines = text.split('\n');
+  let md = `# PDF Export\n\n*Converted from PDF — ${infos.length} page(s)*\n\n`;
+  for (const line of lines) {
+    if (line.startsWith('--- Page ')) {
+      md += `\n## ${line.replace(/---/g, '').trim()}\n\n`;
+    } else if (line.trim()) {
+      md += `${line.trim()}\n\n`;
+    }
+  }
+  return md.trim();
+};
+
