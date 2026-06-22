@@ -179,7 +179,7 @@ export const addHeaderFooter = async (
   const fontSize = 10;
   const { rgb } = await import('pdf-lib');
   for (const page of pages) {
-    const { width, height } = page.getSize();
+    const { height } = page.getSize();
     if (headerText) {
       page.drawText(headerText, {
         x: 50,
@@ -635,7 +635,9 @@ export const fillPdfForms = async (
     } catch {
       try {
         const field = form.getField(fieldName);
-        (field as any).setValue?.(value);
+        if ('setValue' in field && typeof (field as { setValue?: (v: string) => void }).setValue === 'function') {
+          (field as { setValue: (v: string) => void }).setValue(value);
+        }
       } catch (err) {
         console.warn(`Could not fill field: ${fieldName}`, err);
       }

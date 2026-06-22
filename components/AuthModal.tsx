@@ -17,22 +17,14 @@ export default function AuthModal({
   onClose,
   onSuccess
 }: AuthModalProps) {
-  const [mode, setMode] = useState<'login' | 'signup'>(initialMode);
+  const [mode, setMode] = useState(initialMode);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [name, setName] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
 
-  // Sync mode state when modal opens
-  React.useEffect(() => {
-    setMode(initialMode);
-    setEmail('');
-    setPassword('');
-    setName('');
-    setSuccessMsg(null);
-  }, [initialMode, isOpen]);
-
+  // Reset all fields when modal opens (keyed by initialMode in parent forces remount)
   if (!isOpen) return null;
 
   const handleSubmit = (e: React.FormEvent) => {

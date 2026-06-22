@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, Suspense } from 'react';
+import React, { useState, Suspense } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import Image from 'next/image';
 import Link from 'next/link';
@@ -9,10 +9,9 @@ import AuthModal from '@/components/AuthModal';
 import { 
   FileText, Sliders, Type, Lock, Unlock, Edit, 
   Image as ImageIcon, RotateCw, Split, Layers, FolderClosed, 
-  HelpCircle, Heart, HeartCrack, Sparkles, ChevronRight, FileUp,
+  Sparkles, ChevronRight, FileUp,
   Camera, Printer, Table, Presentation, Grid, Scissors,
-  Edit3, ShieldAlert, Eye, Settings, FileSearch, ArrowLeftRight, Activity,
-  User, LogOut
+  Edit3, ShieldAlert, Eye, FileSearch, ArrowLeftRight, Activity
 } from 'lucide-react';
 
 interface PdfTool {
@@ -23,24 +22,8 @@ interface PdfTool {
   icon: React.ReactNode;
 }
 
-// Inner component that safely uses useSearchParams inside Suspense
-function HomeInner() {
-  const [activeTool, setActiveTool] = useState<string | null>(null);
-  const [activeToolName, setActiveToolName] = useState('');
-  const [authMode, setAuthMode] = useState<'login' | 'signup' | null>(null);
-  const [userEmail, setUserEmail] = useState<string | null>(null);
-  const [selectedCategory, setSelectedCategory] = useState<'All' | 'Organize' | 'Convert' | 'Optimize' | 'Security'>('All');
-
-  const searchParams = useSearchParams();
-  const router = useRouter();
-
-  useEffect(() => {
-    const saved = localStorage.getItem('docify_user_email');
-    if (saved) setUserEmail(saved);
-  }, []);
-
-  // Map URL slug → tool id + name
-  const toolSlugMap: Record<string, { id: string; name: string }> = {
+// Map URL slug → tool id + name (module-level constant)
+const toolSlugMap: Record<string, { id: string; name: string }> = {
     'merge':         { id: 'merge',        name: 'Merge PDF' },
     'merge-pdf':     { id: 'merge',        name: 'Merge PDF' },
     'split':         { id: 'split',        name: 'Split PDF' },
@@ -89,24 +72,32 @@ function HomeInner() {
     'flatten-pdf':     { id: 'flatten-pdf',     name: 'Flatten PDF' },
   };
 
-  // Open tool from ?tool= query param
-  useEffect(() => {
+// Inner component that safely uses useSearchParams inside Suspense
+function HomeInner() {
+  const [selectedCategory, setSelectedCategory] = useState<'All' | 'Organize' | 'Convert' | 'Optimize' | 'Security'>('All');
+
+  const searchParams = useSearchParams();
+  const router = useRouter();
+
+  // Derive tool from URL query param immediately (not in effect)
+  const toolFromUrl = React.useMemo(() => {
     const toolParam = searchParams.get('tool');
     if (toolParam && toolSlugMap[toolParam]) {
-      const { id, name } = toolSlugMap[toolParam];
-      setActiveTool(id);
-      setActiveToolName(name);
+      return toolSlugMap[toolParam];
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    return null;
   }, [searchParams]);
 
-  // Open auth modal from ?auth= query param
-  useEffect(() => {
-    const authParam = searchParams.get('auth');
-    if (authParam === 'login') setAuthMode('login');
-    else if (authParam === 'signup') setAuthMode('signup');
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [searchParams]);
+  // Track user-selected tool separately so both URL and clicks work
+  const [userSelectedTool, setUserSelectedTool] = useState<string | null>(null);
+  const [userSelectedToolName, setUserSelectedToolName] = useState('');
+  const activeTool = userSelectedTool ?? toolFromUrl?.id ?? null;
+  const activeToolName = userSelectedToolName ?? toolFromUrl?.name ?? '';
+
+  // Derive auth mode from URL query param
+  const authFromUrl = searchParams.get('auth');
+  const [userClickedAuth, setUserClickedAuth] = useState<'login' | 'signup' | null>(null);
+  const authMode = userClickedAuth ?? (authFromUrl === 'login' ? 'login' : authFromUrl === 'signup' ? 'signup' : null);
 
   const tools: PdfTool[] = [
     // 1. Organize
@@ -392,13 +383,13 @@ function HomeInner() {
   ];
 
   const handleSelectTool = (id: string, name: string) => {
-    setActiveTool(id);
-    setActiveToolName(name);
+    setUserSelectedTool(id);
+    setUserSelectedToolName(name);
   };
 
   const handleBackToDashboard = () => {
-    setActiveTool(null);
-    setActiveToolName('');
+    setUserSelectedTool(null);
+    setUserSelectedToolName('');
     // Clear the query param so back navigation works cleanly
     router.push('/');
   };
@@ -471,7 +462,7 @@ function HomeInner() {
                           tool.category === 'Optimize' ? 'bg-amber-50/80 border-amber-100 group-hover:bg-amber-600 group-hover:border-amber-600' :
                           'bg-red-50/80 border-red-100 group-hover:bg-red-600 group-hover:border-red-600'
                         }`}>
-                          {React.cloneElement(tool.icon as React.ReactElement<any>, {
+                          {React.cloneElement(tool.icon as React.ReactElement<{ className?: string }>, {
                             className: `w-6 h-6 transition-all duration-300 ${
                               tool.category === 'Organize' ? 'text-blue-600 group-hover:text-white' :
                               tool.category === 'Convert' ? 'text-purple-600 group-hover:text-white' :
@@ -589,11 +580,11 @@ function HomeInner() {
       )}
 
       <AuthModal 
+        key={authMode}
         isOpen={authMode !== null} 
         initialMode={authMode || 'login'} 
-        onClose={() => setAuthMode(null)} 
+        onClose={() => setUserClickedAuth(null)} 
         onSuccess={(email) => {
-          setUserEmail(email);
           localStorage.setItem('docify_user_email', email);
         }} 
       />

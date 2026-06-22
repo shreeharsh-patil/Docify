@@ -3,8 +3,8 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { 
   FileText, Upload, Trash2, ArrowLeft, Download, RotateCw, 
-  Lock, Unlock, ShieldAlert, Sparkles, CheckCircle, RefreshCw,
-  Plus, Edit, Eye, Type, Sliders, Layout, Check, Camera
+  ShieldAlert, Sparkles, CheckCircle, RefreshCw,
+  Plus, Camera
 } from 'lucide-react';
 import { 
   fileToArrayBuffer, fileToDataUrl, mergePdfs, splitPdf, 
@@ -65,7 +65,7 @@ export default function PdfWorkspace({ toolId, toolName, onBack }: PdfWorkspaceP
   const [signX, setSignX] = useState(50);
   const [signY, setSignY] = useState(50);
   const [signW, setSignW] = useState(150);
-  const [signH, setSignH] = useState(60);
+  const [signH] = useState(60);
 
   // Page Numbers State
   const [pageNumberPos, setPageNumberPos] = useState<'bottom-center' | 'bottom-right' | 'top-center'>('bottom-center');
@@ -816,7 +816,7 @@ export default function PdfWorkspace({ toolId, toolName, onBack }: PdfWorkspaceP
       }
 
       // Convert result to blob
-      const blob = new Blob([outputBytes as any], { type: 'application/pdf' });
+      const blob = new Blob([new Uint8Array(outputBytes)], { type: 'application/pdf' });
       const url = URL.createObjectURL(blob);
       setResultBlobUrl(url);
       setResultFileName(newName);
@@ -837,8 +837,8 @@ export default function PdfWorkspace({ toolId, toolName, onBack }: PdfWorkspaceP
         origin: { y: 0.6 }
       });
       
-    } catch (e: any) {
-      setErrorMsg(e.message || 'Failed to process document.');
+    } catch (e: unknown) {
+      setErrorMsg(e instanceof Error ? e.message : 'Failed to process document.');
     } finally {
       setIsProcessing(false);
     }
@@ -961,7 +961,7 @@ export default function PdfWorkspace({ toolId, toolName, onBack }: PdfWorkspaceP
                     <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-6 gap-4">
                       {capturedImages.map((img, idx) => (
                         <div key={idx} className="relative rounded-xl overflow-hidden border border-slate-200 group aspect-[3/4] bg-slate-50 shadow-sm">
-                          <img src={img} className="w-full h-full object-cover" />
+                          <img src={img} alt={`Captured page ${idx + 1}`} className="w-full h-full object-cover" />
                           <button
                             onClick={() => setCapturedImages(prev => prev.filter((_, i) => i !== idx))}
                             className="absolute inset-0 bg-red-600/80 hover:bg-red-600 text-white opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center font-bold text-xs"
@@ -1261,7 +1261,7 @@ export default function PdfWorkspace({ toolId, toolName, onBack }: PdfWorkspaceP
                       <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block mb-1">Placement Position</label>
                       <select 
                         value={watermarkPos}
-                        onChange={e => setWatermarkPos(e.target.value as any)}
+                        onChange={e => setWatermarkPos(e.target.value as 'center' | 'top-right' | 'bottom-left' | 'top-left' | 'bottom-right')}
                         className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-xs focus:outline-none focus:border-red-500"
                       >
                         <option value="center">Center</option>
@@ -1394,7 +1394,7 @@ export default function PdfWorkspace({ toolId, toolName, onBack }: PdfWorkspaceP
                         {['a4', 'letter'].map(size => (
                           <button
                             key={size}
-                            onClick={() => setImgPageSize(size as any)}
+                            onClick={() => setImgPageSize(size as 'a4' | 'letter')}
                             className={`flex-1 py-2 border text-xs font-bold rounded-lg transition-all capitalize ${
                               imgPageSize === size 
                                 ? 'bg-red-50 border-red-500 text-red-600' 
@@ -1413,7 +1413,7 @@ export default function PdfWorkspace({ toolId, toolName, onBack }: PdfWorkspaceP
                         {['portrait', 'landscape'].map(orient => (
                           <button
                             key={orient}
-                            onClick={() => setImgOrientation(orient as any)}
+                            onClick={() => setImgOrientation(orient as 'portrait' | 'landscape')}
                             className={`flex-1 py-2 border text-xs font-bold rounded-lg transition-all capitalize ${
                               imgOrientation === orient 
                                 ? 'bg-red-50 border-red-500 text-red-600' 
@@ -1458,7 +1458,7 @@ export default function PdfWorkspace({ toolId, toolName, onBack }: PdfWorkspaceP
                       <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block mb-1">Page number position</label>
                       <select 
                         value={pageNumberPos}
-                        onChange={e => setPageNumberPos(e.target.value as any)}
+                        onChange={e => setPageNumberPos(e.target.value as 'bottom-center' | 'bottom-right' | 'top-center')}
                         className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-xs focus:outline-none focus:border-red-500"
                       >
                         <option value="bottom-center">Bottom Center</option>
@@ -1612,7 +1612,7 @@ export default function PdfWorkspace({ toolId, toolName, onBack }: PdfWorkspaceP
                         <div className="grid grid-cols-3 gap-2">
                           {capturedImages.map((img, idx) => (
                             <div key={idx} className="relative rounded overflow-hidden border border-slate-200 group aspect-[3/4]">
-                              <img src={img} className="w-full h-full object-cover" />
+                              <img src={img} alt={`Captured page ${idx + 1}`} className="w-full h-full object-cover" />
                               <button
                                 onClick={() => setCapturedImages(prev => prev.filter((_, i) => i !== idx))}
                                 className="absolute inset-0 bg-red-600/70 hover:bg-red-600 text-white opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center"
@@ -1778,7 +1778,7 @@ export default function PdfWorkspace({ toolId, toolName, onBack }: PdfWorkspaceP
                         {['brief', 'detailed'].map(len => (
                           <button
                             key={len}
-                            onClick={() => setSummaryLength(len as any)}
+                            onClick={() => setSummaryLength(len as 'brief' | 'detailed')}
                             className={`flex-1 py-2 border text-xs font-bold rounded-lg transition-all capitalize ${
                               summaryLength === len 
                                 ? 'bg-red-50 border-red-500 text-red-600' 

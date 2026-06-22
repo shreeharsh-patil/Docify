@@ -58,13 +58,13 @@ async function uploadFile(
 async function processTask(
   server: string, task: string, token: string,
   tool: string, serverFilenames: string[],
-  originalFilenames: string[], options?: Record<string, any>
+  originalFilenames: string[], options?: Record<string, unknown>
 ): Promise<void> {
   const files = serverFilenames.map((sf, i) => ({
     server_filename: sf,
     filename: originalFilenames[i],
   }));
-  const body: Record<string, any> = { task, tool, files };
+  const body: Record<string, unknown> = { task, tool, files };
   if (options) Object.assign(body, options);
   const res = await fetch(`https://${server}/v1/process`, {
     method: 'POST',
@@ -108,7 +108,7 @@ async function processWithOneKey(
 export interface ProcessOptions {
   tool: string;
   files: { buffer: ArrayBuffer; name: string }[];
-  options?: Record<string, any>;
+  options?: Record<string, unknown>;
 }
 
 export async function processWithILovePDF(params: ProcessOptions): Promise<{ buffer: ArrayBuffer; fileName: string }> {
@@ -125,8 +125,8 @@ export async function processWithILovePDF(params: ProcessOptions): Promise<{ buf
   for (let i = 0; i < pairs.length; i++) {
     try {
       return await processWithOneKey(pairs[i], params);
-    } catch (e: any) {
-      const msg = e.message || String(e);
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
       errors.push(`Key pair #${i + 1}: ${msg}`);
       // If it's not an auth/credit error, don't retry
       if (!msg.includes('401') && !msg.includes('403') && !msg.includes('429') &&

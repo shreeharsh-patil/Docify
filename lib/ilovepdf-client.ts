@@ -10,7 +10,7 @@ export async function checkApiKeysConfigured(): Promise<boolean> {
 export async function processViaILovePDF(
   tool: string,
   files: File[],
-  options?: Record<string, any>
+  options?: Record<string, unknown>
 ): Promise<{ blob: Blob; fileName: string }> {
   const formData = new FormData();
   formData.append('tool', tool);

@@ -20,7 +20,7 @@ export async function extractTextFromPdf(buffer: ArrayBuffer): Promise<string> {
   for (let i = 1; i <= pdf.numPages; i++) {
     const page = await pdf.getPage(i);
     const content = await page.getTextContent();
-    const text = content.items.map((item: any) => item.str).join(' ');
+    const text = content.items.map((item) => ('str' in item ? item.str ?? '' : '')).join(' ');
     pages.push(`--- Page ${i} ---\n${text}`);
   }
   return pages.join('\n\n');
@@ -54,7 +54,7 @@ export async function getPdfPageInfos(buffer: ArrayBuffer): Promise<PageInfo[]> 
   for (let i = 1; i <= pdf.numPages; i++) {
     const page = await pdf.getPage(i);
     const content = await page.getTextContent();
-    const text = content.items.map((item: any) => item.str).join(' ');
+    const text = content.items.map((item) => ('str' in item ? item.str ?? '' : '')).join(' ');
     const viewport = page.getViewport({ scale: 1 });
     infos.push({
       pageNumber: i,

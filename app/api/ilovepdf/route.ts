@@ -72,7 +72,8 @@ export async function POST(req: NextRequest) {
         'Content-Disposition': `attachment; filename="${result.fileName}"`,
       },
     });
-  } catch (e: any) {
-    return NextResponse.json({ error: e.message || 'Processing failed' }, { status: 500 });
+  } catch (e: unknown) {
+    const message = e instanceof Error ? e.message : 'Processing failed';
+    return NextResponse.json({ error: message }, { status: 500 });
   }
 }

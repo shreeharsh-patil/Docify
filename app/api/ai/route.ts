@@ -3,13 +3,13 @@ import { NextRequest, NextResponse } from 'next/server';
 const GROQ_API = 'https://api.groq.com/openai/v1/chat/completions';
 const GEMINI_API = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent';
 
-async function callGroq(apiKey: string, action: string, text: string, options: any): Promise<string | null> {
+async function callGroq(apiKey: string, action: string, text: string, options: Record<string, string | undefined>): Promise<string | null> {
   try {
     let systemPrompt: string;
     let userPrompt: string;
 
     if (action === 'summarize') {
-      const detail = options.length === 'detailed' ? 'detailed and comprehensive' : 'brief and concise';
+      const detail = (options.length ?? 'brief') === 'detailed' ? 'detailed and comprehensive' : 'brief and concise';
       systemPrompt = `You are a document summarizer. Provide a ${detail} summary of the following document text. Include key points, main topics, and important details. Format in markdown.`;
       userPrompt = `Summarize the following document text:\n\n${text.substring(0, 15000)}`;
     } else if (action === 'translate') {
@@ -17,7 +17,8 @@ async function callGroq(apiKey: string, action: string, text: string, options: a
         Spanish: 'Spanish (Español)', French: 'French (Français)', German: 'German (Deutsch)',
         Chinese: 'Chinese (中文)', Hindi: 'Hindi (हिन्दी)', Japanese: 'Japanese (日本語)',
       };
-      const targetLang = langMap[options.language] || options.language;
+      const lang = options.language ?? 'Spanish';
+      const targetLang = langMap[lang] || lang;
       systemPrompt = `You are a professional translator. Translate the following text from English to ${targetLang}. Preserve the original meaning, tone, and formatting. Output the translation only.`;
       userPrompt = `Translate this document text to ${targetLang}:\n\n${text.substring(0, 15000)}`;
     } else {
@@ -46,18 +47,19 @@ async function callGroq(apiKey: string, action: string, text: string, options: a
   }
 }
 
-async function callGemini(apiKey: string, action: string, text: string, options: any): Promise<string | null> {
+async function callGemini(apiKey: string, action: string, text: string, options: Record<string, string | undefined>): Promise<string | null> {
   try {
     let prompt: string;
     if (action === 'summarize') {
-      const detail = options.length === 'detailed' ? 'detailed and comprehensive' : 'brief and concise';
+      const detail = (options.length ?? 'brief') === 'detailed' ? 'detailed and comprehensive' : 'brief and concise';
       prompt = `You are a document summarizer. Provide a ${detail} summary of the following document text. Include key points, main topics, and important details. Format in markdown.\n\nDocument text:\n${text.substring(0, 15000)}`;
     } else if (action === 'translate') {
       const langMap: Record<string, string> = {
         Spanish: 'Spanish (Español)', French: 'French (Français)', German: 'German (Deutsch)',
         Chinese: 'Chinese (中文)', Hindi: 'Hindi (हिन्दी)', Japanese: 'Japanese (日本語)',
       };
-      const targetLang = langMap[options.language] || options.language;
+      const lang = options.language ?? 'Spanish';
+      const targetLang = langMap[lang] || lang;
       prompt = `You are a professional translator. Translate the following text from English to ${targetLang}. Preserve the original meaning, tone, and formatting. Output the translation only.\n\n${text.substring(0, 15000)}`;
     } else {
       return null;
@@ -113,7 +115,8 @@ export async function POST(req: NextRequest) {
     }
 
     return NextResponse.json({ content });
-  } catch (e: any) {
-    return NextResponse.json({ error: e.message || 'AI processing failed' }, { status: 500 });
+  } catch (e: unknown) {
+    const message = e instanceof Error ? e.message : 'AI processing failed';
+    return NextResponse.json({ error: message }, { status: 500 });
   }
 }
