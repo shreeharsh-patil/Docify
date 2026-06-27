@@ -30,18 +30,18 @@ Standard document platforms drop connections or run out of memory when processin
 
 ```mermaid
 graph TD
-    subgraph Client Application Space
+    subgraph "Client Application Space"
         A["🎨 UI Shell interface <br><i>(Next.js App Router / Tailwind)</i>"]
         B["📥 Stream Uploader <br><i>(Chunked File Streaming Handles)</i>"]
     end
 
-    subgraph Service API Layer
+    subgraph "Service API Layer"
         C["🔌 System API Interface <br><i>(Express HTTP Server / Actions)</i>"]
         D["⚙️ Binary Mutator Pipeline <br><i>(PDF Compression & Merging)</i>"]
         E["🧠 Semantic Analytics Layer <br><i>(Text Chunking & Tokenizers)</i>"]
     end
 
-    subgraph Hardware, Storage & LLM AI Mesh
+    subgraph "Hardware, Storage & LLM AI Mesh"
         F["💾 Metadata Ledger <br><i>(PostgreSQL Database Matrix)</i>"]
         G["🤖 Vector Storage Core <br><i>(Pinecone / PGVector Nodes)</i>"]
         H["💎 LLM Inference Engine <br><i>(OpenAI / Local Model API)</i>"]
