@@ -306,19 +306,23 @@ export const watermarkPdf = async (
 export const encryptPdfBuffer = (buffer: ArrayBuffer, pass: string): Uint8Array => {
   const inputBytes = new Uint8Array(buffer);
   const passBytes = new TextEncoder().encode(pass);
-  
-  const encryptedBytes = new Uint8Array(inputBytes.length + 8 + passBytes.length); // Add a prefix header
-  
+
+  // Layout: 8-byte header + ciphertext (same length as input) + 1 checksum byte.
+  // (Previously this over-allocated `passBytes.length` trailer bytes but only ever
+  // wrote the last one, leaving zero-padding in between that decrypt() would
+  // mistake for real ciphertext for any password longer than 1 character.)
+  const encryptedBytes = new Uint8Array(inputBytes.length + 8 + 1);
+
   // Write header signature: "DOCIFYPT"
   const header = new TextEncoder().encode('DOCIFYPT');
   encryptedBytes.set(header, 0);
-  
+
   // XOR encryption loop
   for (let i = 0; i < inputBytes.length; i++) {
     const passKey = passBytes[i % passBytes.length];
     encryptedBytes[8 + i] = inputBytes[i] ^ passKey;
   }
-  
+
   // Append password hash check byte
   let checkSum = 0;
   for (const byte of passBytes) {
