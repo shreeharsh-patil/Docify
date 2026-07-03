@@ -926,3 +926,54 @@ export const pdfToMarkdownNative = async (pdfBuffer: ArrayBuffer): Promise<strin
   return md.trim();
 };
 
+// 33. PDF TO WORD (native .docx) — builds a real, openable OOXML Word file
+// client-side, instead of dumping raw extracted text into a .txt file.
+export const pdfToDocxNative = async (pdfBuffer: ArrayBuffer): Promise<Blob> => {
+  const { extractTextFromPdf } = await import('./pdf-client');
+  const text = await extractTextFromPdf(pdfBuffer);
+  const lines = text.split('\n').map((l) => l.trim()).filter(Boolean);
+
+  const escapeXml = (s: string) =>
+    s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
+  const bodyXml = lines
+    .map((line) => {
+      if (line.startsWith('--- Page ')) {
+        const heading = escapeXml(line.replace(/---/g, '').trim());
+        return `<w:p><w:pPr><w:rPr><w:b/><w:sz w:val="28"/></w:rPr></w:pPr><w:r><w:rPr><w:b/><w:sz w:val="28"/></w:rPr><w:t xml:space="preserve">${heading}</w:t></w:r></w:p>`;
+      }
+      return `<w:p><w:r><w:t xml:space="preserve">${escapeXml(line)}</w:t></w:r></w:p>`;
+    })
+    .join('');
+
+  const documentXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+  <w:body>
+    ${bodyXml}
+    <w:sectPr><w:pgSz w:w="11906" w:h="16838"/><w:pgMar w:top="1417" w:right="1417" w:bottom="1417" w:left="1417"/></w:sectPr>
+  </w:body>
+</w:document>`;
+
+  const contentTypesXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
+  <Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
+  <Default Extension="xml" ContentType="application/xml"/>
+  <Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>
+</Types>`;
+
+  const relsXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/>
+</Relationships>`;
+
+  const zip = new JSZip();
+  zip.file('[Content_Types].xml', contentTypesXml);
+  zip.file('_rels/.rels', relsXml);
+  zip.file('word/document.xml', documentXml);
+
+  return zip.generateAsync({
+    type: 'blob',
+    mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  });
+};
+

@@ -15,7 +15,7 @@ import {
   extractTextFromOfficeFile, flattenPdf, addHeaderFooter, addBlankPages,
   txtToPdf, pdfToHtml, setPermissions, removeMetadata,
   redactByTextSearch, reversePages, nUpLayout, batesNumbering,
-  extractFormData, validatePdfuaCompliance, pdfToMarkdownNative
+  extractFormData, validatePdfuaCompliance, pdfToMarkdownNative, pdfToDocxNative
 } from '@/lib/pdfProcessor';
 import { processViaILovePDF } from '@/lib/ilovepdf-client';
 import { processWithAI } from '@/lib/ai-client';
@@ -82,6 +82,13 @@ export default function PdfWorkspace({ toolId, toolName, onBack }: PdfWorkspaceP
   const [editY, setEditY] = useState(100);
   const [editColor, setEditColor] = useState('#000000');
   const [editSize, setEditSize] = useState(14);
+  const [editPageNum, setEditPageNum] = useState(1);
+  const [editAnnotations, setEditAnnotations] = useState<
+    { page: number; text: string; x: number; y: number; size: number; color: string }[]
+  >([]);
+  const editPreviewContainerRef = useRef<HTMLDivElement | null>(null);
+  const editPreviewCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const EDIT_PREVIEW_SCALE = 1.2;
 
   // Scan to PDF State
   const [cameraActive, setCameraActive] = useState(false);
@@ -128,7 +135,7 @@ export default function PdfWorkspace({ toolId, toolName, onBack }: PdfWorkspaceP
 
   // Initialize Organize indexes when a file is uploaded
   useEffect(() => {
-    if (files.length === 1 && (toolId === 'organize' || toolId === 'sign')) {
+    if (files.length === 1 && (toolId === 'organize' || toolId === 'sign' || toolId === 'edit')) {
       const getPageCount = async () => {
         try {
           const buffer = await fileToArrayBuffer(files[0]);
@@ -137,6 +144,11 @@ export default function PdfWorkspace({ toolId, toolName, onBack }: PdfWorkspaceP
           const count = pdfDoc.getPageCount();
           setTotalPageCount(count);
           setPageOrder(Array.from({ length: count }, (_, i) => i));
+          if (toolId === 'edit') {
+            // Fresh file loaded — reset any annotations left over from a previous document
+            setEditAnnotations([]);
+            setEditPageNum(1);
+          }
         } catch (e) {
           console.error(e);
         }
@@ -144,6 +156,79 @@ export default function PdfWorkspace({ toolId, toolName, onBack }: PdfWorkspaceP
       getPageCount();
     }
   }, [files, toolId]);
+
+  // Render a live preview of the target page for the Edit PDF tool, with
+  // click-to-place coordinate picking and a visual overlay of annotations
+  // already added — so edits are no longer "blind" numeric guesses.
+  useEffect(() => {
+    if (toolId !== 'edit' || files.length !== 1) return;
+    let cancelled = false;
+
+    (async () => {
+      try {
+        const buffer = await fileToArrayBuffer(files[0]);
+        const { renderPdfPageToCanvas } = await import('@/lib/pdf-client');
+        const pageNum = Math.min(Math.max(1, editPageNum), totalPageCount || editPageNum);
+        const canvas = await renderPdfPageToCanvas(buffer, pageNum, EDIT_PREVIEW_SCALE);
+        if (cancelled) return;
+
+        const ctx = canvas.getContext('2d');
+        if (ctx) {
+          editAnnotations
+            .filter((a) => a.page === pageNum)
+            .forEach((a) => {
+              const cx = a.x * EDIT_PREVIEW_SCALE;
+              const cy = canvas.height - a.y * EDIT_PREVIEW_SCALE;
+              ctx.fillStyle = a.color;
+              ctx.font = `${a.size * EDIT_PREVIEW_SCALE}px sans-serif`;
+              ctx.fillText(a.text, cx, cy);
+              ctx.beginPath();
+              ctx.arc(cx, cy, 3, 0, Math.PI * 2);
+              ctx.fillStyle = '#ef4444';
+              ctx.fill();
+            });
+        }
+
+        editPreviewCanvasRef.current = canvas;
+        if (editPreviewContainerRef.current) {
+          editPreviewContainerRef.current.innerHTML = '';
+          canvas.className = 'max-w-full h-auto rounded-lg border border-slate-200 shadow-sm cursor-crosshair';
+          editPreviewContainerRef.current.appendChild(canvas);
+        }
+      } catch (e) {
+        console.error('Edit preview render failed', e);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [files, toolId, editPageNum, totalPageCount, editAnnotations]);
+
+  // Clicking the live preview sets the X/Y coordinates for the next annotation
+  const handleEditCanvasClick = (e: React.MouseEvent<HTMLDivElement>) => {
+    const canvas = editPreviewCanvasRef.current;
+    if (!canvas) return;
+    const rect = canvas.getBoundingClientRect();
+    const scaleX = canvas.width / rect.width;
+    const scaleY = canvas.height / rect.height;
+    const canvasX = (e.clientX - rect.left) * scaleX;
+    const canvasY = (e.clientY - rect.top) * scaleY;
+    setEditX(Math.round(canvasX / EDIT_PREVIEW_SCALE));
+    setEditY(Math.round((canvas.height - canvasY) / EDIT_PREVIEW_SCALE));
+  };
+
+  const addEditAnnotation = () => {
+    if (!editText.trim()) return;
+    setEditAnnotations((prev) => [
+      ...prev,
+      { page: editPageNum, text: editText, x: editX, y: editY, size: editSize, color: editColor },
+    ]);
+  };
+
+  const removeEditAnnotation = (index: number) => {
+    setEditAnnotations((prev) => prev.filter((_, i) => i !== index));
+  };
 
   // Handle Drag & Drop events
   const handleDragOver = (e: React.DragEvent) => {
@@ -504,9 +589,10 @@ export default function PdfWorkspace({ toolId, toolName, onBack }: PdfWorkspaceP
           } catch {
             const buffer = await fileToArrayBuffer(files[0]);
             if (toolId === 'pdf-to-word') {
-              const text = await extractTextFromPdf(buffer);
-              resultBlob = new Blob([`Document: ${files[0].name}\n\n${text}\n\n---\nExtracted by Docify (client-side)`], { type: 'text/plain' });
-              resultFile = `${files[0].name.replace('.pdf', '')}_extracted.txt`;
+              // Build a real, openable .docx (not a .txt dump) so the output
+              // actually opens in Word/LibreOffice/Google Docs.
+              resultBlob = await pdfToDocxNative(buffer);
+              resultFile = `${files[0].name.replace('.pdf', '')}.docx`;
             } else if (toolId === 'pdf-to-excel') {
               const infos = await getPdfPageInfos(buffer);
               const csvRows = ['Page,Content'];
@@ -590,22 +676,29 @@ export default function PdfWorkspace({ toolId, toolName, onBack }: PdfWorkspaceP
           return;
         }
         case 'edit': {
+          if (editAnnotations.length === 0) {
+            throw new Error('Click on the page preview to place text, then click "Add Text" before applying edits.');
+          }
           const buffer = await fileToArrayBuffer(files[0]);
           const { PDFDocument, rgb } = await import('pdf-lib');
           const pdfDoc = await PDFDocument.load(buffer);
-          const page = pdfDoc.getPages()[0];
-          
-          const hex = editColor.replace('#', '');
-          const r = parseInt(hex.substring(0, 2), 16) / 255 || 0;
-          const g = parseInt(hex.substring(2, 4), 16) / 255 || 0;
-          const b = parseInt(hex.substring(4, 6), 16) / 255 || 0;
+          const pages = pdfDoc.getPages();
 
-          page.drawText(editText, {
-            x: editX,
-            y: editY,
-            size: editSize,
-            color: rgb(r, g, b)
-          });
+          for (const ann of editAnnotations) {
+            const pageIdx = Math.min(pages.length - 1, Math.max(0, ann.page - 1));
+            const page = pages[pageIdx];
+            const hex = ann.color.replace('#', '');
+            const r = parseInt(hex.substring(0, 2), 16) / 255 || 0;
+            const g = parseInt(hex.substring(2, 4), 16) / 255 || 0;
+            const b = parseInt(hex.substring(4, 6), 16) / 255 || 0;
+
+            page.drawText(ann.text, {
+              x: ann.x,
+              y: ann.y,
+              size: ann.size,
+              color: rgb(r, g, b)
+            });
+          }
           outputBytes = await pdfDoc.save();
           newName = `${files[0].name.replace('.pdf', '')}_edited.pdf`;
           break;
@@ -1013,6 +1106,8 @@ export default function PdfWorkspace({ toolId, toolName, onBack }: PdfWorkspaceP
     setResultBlobUrl(null);
     setIsSuccess(false);
     clearCanvas();
+    setEditAnnotations([]);
+    setEditPageNum(1);
   };
 
   const movePage = (fromIndex: number, toIndex: number) => {
@@ -1230,8 +1325,57 @@ export default function PdfWorkspace({ toolId, toolName, onBack }: PdfWorkspaceP
                   </button>
                 </div>
 
-                {/* Organize Tool Visual Pages */}
-                {toolId === 'organize' && files.length === 1 ? (
+                {/* Edit Tool Visual Page Preview */}
+                {toolId === 'edit' && files.length === 1 ? (
+                  <div className="space-y-4">
+                    <div className="flex items-center justify-between">
+                      <p className="text-xs text-slate-500">
+                        Click anywhere on the page below to set where the next text goes, then use <span className="font-bold text-slate-700">&quot;Add Text&quot;</span> in the panel on the right.
+                      </p>
+                      <div className="flex items-center gap-2 shrink-0 ml-4">
+                        <button
+                          onClick={() => setEditPageNum(p => Math.max(1, p - 1))}
+                          disabled={editPageNum <= 1}
+                          className="p-1.5 rounded-lg border border-slate-200 hover:bg-slate-100 disabled:opacity-30"
+                        >
+                          ←
+                        </button>
+                        <span className="text-xs font-bold text-slate-600 whitespace-nowrap">
+                          Page {editPageNum} / {totalPageCount || 1}
+                        </span>
+                        <button
+                          onClick={() => setEditPageNum(p => Math.min(totalPageCount || p, p + 1))}
+                          disabled={editPageNum >= (totalPageCount || 1)}
+                          className="p-1.5 rounded-lg border border-slate-200 hover:bg-slate-100 disabled:opacity-30"
+                        >
+                          →
+                        </button>
+                      </div>
+                    </div>
+                    <div
+                      ref={editPreviewContainerRef}
+                      onClick={handleEditCanvasClick}
+                      className="flex justify-center bg-slate-100 border border-slate-200 rounded-2xl p-4 min-h-[200px] items-center"
+                    />
+                    {editAnnotations.length > 0 && (
+                      <div className="space-y-2">
+                        <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Added text ({editAnnotations.length})</p>
+                        <div className="flex flex-wrap gap-2">
+                          {editAnnotations.map((ann, idx) => (
+                            <div key={idx} className="flex items-center gap-2 bg-white border border-slate-200 rounded-lg px-3 py-1.5 text-xs shadow-sm">
+                              <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: ann.color }} />
+                              <span className="font-semibold text-slate-700 max-w-[140px] truncate">{ann.text}</span>
+                              <span className="text-slate-400">p.{ann.page}</span>
+                              <button onClick={() => removeEditAnnotation(idx)} className="text-slate-400 hover:text-red-600">
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                ) : toolId === 'organize' && files.length === 1 ? (
                   <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-6 gap-4">
                     {pageOrder.map((pageIdx, idx) => (
                       <div 
@@ -1845,10 +1989,26 @@ export default function PdfWorkspace({ toolId, toolName, onBack }: PdfWorkspaceP
                 {/* 23. Edit PDF options */}
                 {toolId === 'edit' && (
                   <div className="space-y-4">
+                    <div className="bg-red-50/40 p-3 border border-red-100 rounded-xl text-[11px] text-slate-500 leading-normal">
+                      Click the page preview to position text, adjust the details below, then press <strong>Add Text</strong>. Repeat for as many annotations as you need, on any page, then hit Process.
+                    </div>
+
+                    <div>
+                      <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block mb-1">Target Page</label>
+                      <input
+                        type="number"
+                        min={1}
+                        max={totalPageCount || 1}
+                        value={editPageNum}
+                        onChange={e => setEditPageNum(Math.min(totalPageCount || 1, Math.max(1, parseInt(e.target.value) || 1)))}
+                        className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-xs focus:outline-none focus:border-red-500"
+                      />
+                    </div>
+
                     <div>
                       <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block mb-1">Text Annotation</label>
-                      <input 
-                        type="text" 
+                      <input
+                        type="text"
                         value={editText}
                         onChange={e => setEditText(e.target.value)}
                         className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-xs focus:outline-none focus:border-red-500"
@@ -1858,8 +2018,8 @@ export default function PdfWorkspace({ toolId, toolName, onBack }: PdfWorkspaceP
                     <div className="grid grid-cols-2 gap-3">
                       <div>
                         <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block mb-1">Color</label>
-                        <input 
-                          type="color" 
+                        <input
+                          type="color"
                           value={editColor}
                           onChange={e => setEditColor(e.target.value)}
                           className="w-full h-9 bg-slate-50 border border-slate-200 rounded-lg p-0.5 cursor-pointer"
@@ -1867,8 +2027,8 @@ export default function PdfWorkspace({ toolId, toolName, onBack }: PdfWorkspaceP
                       </div>
                       <div>
                         <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block mb-1">Font Size</label>
-                        <input 
-                          type="number" 
+                        <input
+                          type="number"
                           value={editSize}
                           onChange={e => setEditSize(parseInt(e.target.value) || 12)}
                           className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-xs focus:outline-none focus:border-red-500"
@@ -1879,8 +2039,8 @@ export default function PdfWorkspace({ toolId, toolName, onBack }: PdfWorkspaceP
                     <div className="grid grid-cols-2 gap-3">
                       <div>
                         <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block mb-1">X Coord</label>
-                        <input 
-                          type="number" 
+                        <input
+                          type="number"
                           value={editX}
                           onChange={e => setEditX(parseInt(e.target.value) || 0)}
                           className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-xs focus:outline-none focus:border-red-500"
@@ -1888,14 +2048,28 @@ export default function PdfWorkspace({ toolId, toolName, onBack }: PdfWorkspaceP
                       </div>
                       <div>
                         <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block mb-1">Y Coord</label>
-                        <input 
-                          type="number" 
+                        <input
+                          type="number"
                           value={editY}
                           onChange={e => setEditY(parseInt(e.target.value) || 0)}
                           className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-xs focus:outline-none focus:border-red-500"
                         />
                       </div>
                     </div>
+
+                    <button
+                      onClick={addEditAnnotation}
+                      disabled={!editText.trim()}
+                      className="w-full bg-slate-800 hover:bg-slate-700 disabled:opacity-40 text-white font-bold text-xs py-2.5 rounded-lg transition-colors"
+                    >
+                      + Add Text
+                    </button>
+
+                    {editAnnotations.length === 0 && (
+                      <p className="text-[10px] text-amber-600 bg-amber-50 border border-amber-100 rounded-lg px-3 py-2">
+                        No text added yet — Process will do nothing until you add at least one annotation.
+                      </p>
+                    )}
                   </div>
                 )}
 
