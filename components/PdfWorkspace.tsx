@@ -438,6 +438,17 @@ export default function PdfWorkspace({ toolId, toolName, onBack }: PdfWorkspaceP
         case 'word-to-pdf':
         case 'excel-to-pdf':
         case 'ppt-to-pdf': {
+          // Prefer server-side conversion (real Office engine via iLovePDF) so
+          // formatting, images, tables and layout are preserved. Only fall back
+          // to the plain-text reconstruction below if the API is unavailable.
+          try {
+            const apiResult = await processViaILovePDF(toolId, files);
+            outputBytes = new Uint8Array(await apiResult.blob.arrayBuffer());
+            newName = apiResult.fileName;
+            break;
+          } catch {
+            // fall through to client-side fallback
+          }
           const extractedText = await extractTextFromOfficeFile(files[0]);
           const { PDFDocument, rgb: pdfRgb } = await import('pdf-lib');
           const pdfDoc = await PDFDocument.create();
