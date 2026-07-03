@@ -208,13 +208,14 @@ export const addBlankPages = async (
 ): Promise<Uint8Array> => {
   const pdfDoc = await PDFDocument.load(pdfBuffer);
   const { width, height } = pdfDoc.getPage(0)?.getSize() || { width: 612, height: 792 };
-  const blankDoc = await PDFDocument.create();
-  for (let i = 0; i < count; i++) {
-    blankDoc.addPage([width, height]);
-  }
-  const blankCopies = await pdfDoc.copyPages(blankDoc, Array.from({ length: count }, (_, i) => i));
   const sorted = [...positions].sort((a, b) => b - a);
   for (const pos of sorted) {
+    // For each insertion position, we create unique copy of blank pages to avoid circular page tree reference
+    const blankDoc = await PDFDocument.create();
+    for (let i = 0; i < count; i++) {
+      blankDoc.addPage([width, height]);
+    }
+    const blankCopies = await pdfDoc.copyPages(blankDoc, Array.from({ length: count }, (_, i) => i));
     for (let i = 0; i < count; i++) {
       pdfDoc.insertPage(pos, blankCopies[i]);
     }

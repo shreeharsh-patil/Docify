@@ -779,23 +779,6 @@ export default function PdfWorkspace({ toolId, toolName, onBack }: PdfWorkspaceP
             margin: 10
           });
           newName = 'scanned_document.pdf';
-          break;
-        }
-        case 'ocr': {
-          const result = await processViaILovePDF(toolId, files);
-          const url = URL.createObjectURL(result.blob);
-          setResultBlobUrl(url);
-          setResultFileName(result.fileName);
-          setIsSuccess(true);
-          setIsProcessing(false);
-          const tempLink = document.createElement('a');
-          tempLink.href = url;
-          tempLink.setAttribute('download', result.fileName);
-          document.body.appendChild(tempLink);
-          tempLink.click();
-          document.body.removeChild(tempLink);
-          confetti({ particleCount: 80, spread: 60 });
-          return;
         }
         case 'remove-pages': {
           const buffer = await fileToArrayBuffer(files[0]);
@@ -936,24 +919,6 @@ export default function PdfWorkspace({ toolId, toolName, onBack }: PdfWorkspaceP
           tempLink.click();
           document.body.removeChild(tempLink);
           confetti({ particleCount: 80, spread: 60 });
-          return;
-        }
-        case 'ai-summarizer': {
-          const summaryOpts = { output_format: summaryLength === 'brief' ? 'pdf' : 'pdf' };
-          const result = await processViaILovePDF(toolId, files, summaryOpts);
-          const url = URL.createObjectURL(result.blob);
-          setResultBlobUrl(url);
-          setResultFileName(result.fileName);
-          setIsSuccess(true);
-          setIsProcessing(false);
-          const tempLink = document.createElement('a');
-          tempLink.href = url;
-          tempLink.setAttribute('download', result.fileName);
-          document.body.appendChild(tempLink);
-          tempLink.click();
-          document.body.removeChild(tempLink);
-          confetti({ particleCount: 75, spread: 55 });
-          return;
         }
         case 'txt-to-pdf': {
           outputBytes = await txtToPdf(txtContent, {
