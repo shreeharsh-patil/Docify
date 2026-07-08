@@ -779,6 +779,7 @@ export default function PdfWorkspace({ toolId, toolName, onBack }: PdfWorkspaceP
             margin: 10
           });
           newName = 'scanned_document.pdf';
+          break;
         }
         case 'remove-pages': {
           const buffer = await fileToArrayBuffer(files[0]);
@@ -919,6 +920,7 @@ export default function PdfWorkspace({ toolId, toolName, onBack }: PdfWorkspaceP
           tempLink.click();
           document.body.removeChild(tempLink);
           confetti({ particleCount: 80, spread: 60 });
+          return;
         }
         case 'txt-to-pdf': {
           outputBytes = await txtToPdf(txtContent, {
