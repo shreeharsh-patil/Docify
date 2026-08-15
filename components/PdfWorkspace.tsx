@@ -4,7 +4,9 @@ import React, { useState, useRef, useEffect } from 'react';
 import { 
   FileText, Upload, Trash2, ArrowLeft, Download, RotateCw, 
   ShieldAlert, Sparkles, CheckCircle, RefreshCw,
-  Plus, Camera
+  Plus, Camera, Type, Square, Circle, ArrowRight, Stamp, Ruler,
+  PenTool, Highlighter, Undo, Copy, ArrowUpDown, Shield, ShieldCheck,
+  Check, Sliders, Layers, EyeOff, Search
 } from 'lucide-react';
 import { 
   fileToArrayBuffer, fileToDataUrl, mergePdfs, splitPdf, 
@@ -15,7 +17,10 @@ import {
   extractTextFromOfficeFile, flattenPdf, addHeaderFooter, addBlankPages,
   txtToPdf, pdfToHtml, setPermissions, removeMetadata,
   redactByTextSearch, reversePages, nUpLayout, batesNumbering,
-  extractFormData, validatePdfuaCompliance, pdfToMarkdownNative, pdfToDocxNative
+  extractFormData, validatePdfuaCompliance, pdfToMarkdownNative, pdfToDocxNative,
+  pdfToXlsxNative, pdfToPptxNative,
+  applyVisualAnnotationsToPdf, VisualAnnotation, organizePdfAdvanced, PageOrganizeItem,
+  deepSanitizePdf, inspectPdfDetails, PdfInspectionReport, sanitizeForPdfFont
 } from '@/lib/pdfProcessor';
 import { processViaILovePDF } from '@/lib/ilovepdf-client';
 import { processWithAI } from '@/lib/ai-client';
@@ -26,16 +31,27 @@ interface PdfWorkspaceProps {
   toolId: string;
   toolName: string;
   onBack: () => void;
+  onSwitchTool?: (toolId: string, toolName: string, carriedFiles?: File[]) => void;
+  initialFiles?: File[];
 }
 
-export default function PdfWorkspace({ toolId, toolName, onBack }: PdfWorkspaceProps) {
-  const [files, setFiles] = useState<File[]>([]);
+export default function PdfWorkspace({ toolId, toolName, onBack, onSwitchTool, initialFiles }: PdfWorkspaceProps) {
+  const [files, setFiles] = useState<File[]>(initialFiles || []);
   const [isDragOver, setIsDragOver] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
   const [isSuccess, setIsSuccess] = useState(false);
   const [resultBlobUrl, setResultBlobUrl] = useState<string | null>(null);
   const [resultFileName, setResultFileName] = useState('');
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+
+  // Sync initialFiles if prop updates
+  useEffect(() => {
+    if (initialFiles && initialFiles.length > 0) {
+      setFiles(initialFiles);
+      setIsSuccess(false);
+      setResultBlobUrl(null);
+    }
+  }, [initialFiles]);
 
   // Tool options states
   const [splitStart, setSplitStart] = useState(1);
@@ -56,8 +72,9 @@ export default function PdfWorkspace({ toolId, toolName, onBack }: PdfWorkspaceP
   const [imgOrientation, setImgOrientation] = useState<'portrait' | 'landscape'>('portrait');
   const [imgMargin, setImgMargin] = useState(20);
 
-  // Organize PDF page sequence indices state
+  // Organize PDF page sequence indices & rotation state (KillerPDF matrix)
   const [pageOrder, setPageOrder] = useState<number[]>([]);
+  const [pageItems, setPageItems] = useState<{ id: string; originalIndex: number; rotation: number }[]>([]);
   const [totalPageCount, setTotalPageCount] = useState(0);
 
   // Sign PDF Canvas State
@@ -76,16 +93,26 @@ export default function PdfWorkspace({ toolId, toolName, onBack }: PdfWorkspaceP
   // HTML to PDF State
   const [htmlCode, setHtmlCode] = useState('<h1>Hello Docify</h1>\n<p>This is a custom compiled client-side PDF document.</p>');
 
-  // Edit PDF Options
+  // Visual Vector Annotation Studio (Open PDF Studio Engine)
+  const [editToolType, setEditToolType] = useState<'text' | 'rect' | 'circle' | 'line' | 'arrow' | 'freehand' | 'highlighter' | 'stamp' | 'measurement'>('text');
   const [editText, setEditText] = useState('ANNOTATION TEXT');
   const [editX, setEditX] = useState(100);
   const [editY, setEditY] = useState(100);
-  const [editColor, setEditColor] = useState('#000000');
+  const [editColor, setEditColor] = useState('#ef4444');
+  const [editFillColor, setEditFillColor] = useState('');
+  const [editStrokeWidth, setEditStrokeWidth] = useState(2);
+  const [editOpacity, setEditOpacity] = useState(1);
   const [editSize, setEditSize] = useState(14);
   const [editPageNum, setEditPageNum] = useState(1);
-  const [editAnnotations, setEditAnnotations] = useState<
-    { page: number; text: string; x: number; y: number; size: number; color: string }[]
-  >([]);
+  const [editStampType, setEditStampType] = useState<'APPROVED' | 'REJECTED' | 'CONFIDENTIAL' | 'DRAFT' | 'PAID' | 'REVIEWED' | 'FINAL' | 'CUSTOM'>('APPROVED');
+  const [customStampText, setCustomStampText] = useState('APPROVED');
+  const [editScaleRatio, setEditScaleRatio] = useState(0.3528);
+  const [editUnit, setEditUnit] = useState('mm');
+  const [visualAnnotations, setVisualAnnotations] = useState<VisualAnnotation[]>([]);
+  const [isDrawingShape, setIsDrawingShape] = useState(false);
+  const [drawStartPoint, setDrawStartPoint] = useState<{ x: number; y: number } | null>(null);
+  const [drawCurrentPoint, setDrawCurrentPoint] = useState<{ x: number; y: number } | null>(null);
+  const [freehandPoints, setFreehandPoints] = useState<{ x: number; y: number }[]>([]);
   const editPreviewContainerRef = useRef<HTMLDivElement | null>(null);
   const editPreviewCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const EDIT_PREVIEW_SCALE = 1.2;
@@ -133,7 +160,7 @@ export default function PdfWorkspace({ toolId, toolName, onBack }: PdfWorkspaceP
   const [redactSearchText, setRedactSearchText] = useState('CONFIDENTIAL');
   const [pdfuaResult, setPdfuaResult] = useState<{ passed: boolean; issues: string[] } | null>(null);
 
-  // Initialize Organize indexes when a file is uploaded
+  // Initialize Organize indexes and Edit states when a file is uploaded
   useEffect(() => {
     if (files.length === 1 && (toolId === 'organize' || toolId === 'sign' || toolId === 'edit')) {
       const getPageCount = async () => {
@@ -144,9 +171,9 @@ export default function PdfWorkspace({ toolId, toolName, onBack }: PdfWorkspaceP
           const count = pdfDoc.getPageCount();
           setTotalPageCount(count);
           setPageOrder(Array.from({ length: count }, (_, i) => i));
+          setPageItems(Array.from({ length: count }, (_, i) => ({ id: `p-${i}-${Date.now()}`, originalIndex: i, rotation: 0 })));
           if (toolId === 'edit') {
-            // Fresh file loaded — reset any annotations left over from a previous document
-            setEditAnnotations([]);
+            setVisualAnnotations([]);
             setEditPageNum(1);
           }
         } catch (e) {
@@ -157,9 +184,7 @@ export default function PdfWorkspace({ toolId, toolName, onBack }: PdfWorkspaceP
     }
   }, [files, toolId]);
 
-  // Render a live preview of the target page for the Edit PDF tool, with
-  // click-to-place coordinate picking and a visual overlay of annotations
-  // already added — so edits are no longer "blind" numeric guesses.
+  // Render a live interactive vector canvas for Edit PDF (Open PDF Studio Engine)
   useEffect(() => {
     if (toolId !== 'edit' || files.length !== 1) return;
     let cancelled = false;
@@ -174,25 +199,246 @@ export default function PdfWorkspace({ toolId, toolName, onBack }: PdfWorkspaceP
 
         const ctx = canvas.getContext('2d');
         if (ctx) {
-          editAnnotations
+          // Draw committed annotations for this page
+          visualAnnotations
             .filter((a) => a.page === pageNum)
             .forEach((a) => {
-              const cx = a.x * EDIT_PREVIEW_SCALE;
-              const cy = canvas.height - a.y * EDIT_PREVIEW_SCALE;
-              ctx.fillStyle = a.color;
-              ctx.font = `${a.size * EDIT_PREVIEW_SCALE}px sans-serif`;
-              ctx.fillText(a.text, cx, cy);
-              ctx.beginPath();
-              ctx.arc(cx, cy, 3, 0, Math.PI * 2);
-              ctx.fillStyle = '#ef4444';
-              ctx.fill();
+              const primaryColor = a.color || '#ef4444';
+              const strokeWidth = (a.strokeWidth || 2) * EDIT_PREVIEW_SCALE;
+              const opacity = a.opacity ?? 1;
+              ctx.save();
+              ctx.globalAlpha = opacity;
+
+              switch (a.type) {
+                case 'text': {
+                  const cx = a.x * EDIT_PREVIEW_SCALE;
+                  const cy = canvas.height - a.y * EDIT_PREVIEW_SCALE;
+                  ctx.fillStyle = primaryColor;
+                  ctx.font = `bold ${(a.fontSize || 14) * EDIT_PREVIEW_SCALE}px sans-serif`;
+                  ctx.fillText(a.text || '', cx, cy);
+                  break;
+                }
+                case 'highlighter': {
+                  const cx = a.x * EDIT_PREVIEW_SCALE;
+                  const cy = canvas.height - a.y * EDIT_PREVIEW_SCALE;
+                  const cw = (a.width || 120) * EDIT_PREVIEW_SCALE;
+                  const ch = (a.height || 24) * EDIT_PREVIEW_SCALE;
+                  ctx.fillStyle = primaryColor;
+                  ctx.globalAlpha = 0.35;
+                  ctx.fillRect(cx, cy, cw, ch);
+                  break;
+                }
+                case 'rect': {
+                  const cx = a.x * EDIT_PREVIEW_SCALE;
+                  const cy = canvas.height - a.y * EDIT_PREVIEW_SCALE;
+                  const cw = (a.width || 100) * EDIT_PREVIEW_SCALE;
+                  const ch = (a.height || 60) * EDIT_PREVIEW_SCALE;
+                  if (a.fillColor) {
+                    ctx.fillStyle = a.fillColor;
+                    ctx.fillRect(cx, cy, cw, ch);
+                  }
+                  ctx.strokeStyle = primaryColor;
+                  ctx.lineWidth = strokeWidth;
+                  ctx.strokeRect(cx, cy, cw, ch);
+                  break;
+                }
+                case 'circle': {
+                  const cx = a.x * EDIT_PREVIEW_SCALE;
+                  const cy = canvas.height - a.y * EDIT_PREVIEW_SCALE;
+                  const rx = ((a.width || 80) * EDIT_PREVIEW_SCALE) / 2;
+                  const ry = ((a.height || 80) * EDIT_PREVIEW_SCALE) / 2;
+                  ctx.beginPath();
+                  ctx.ellipse(cx + rx, cy + ry, rx, ry, 0, 0, Math.PI * 2);
+                  if (a.fillColor) {
+                    ctx.fillStyle = a.fillColor;
+                    ctx.fill();
+                  }
+                  ctx.strokeStyle = primaryColor;
+                  ctx.lineWidth = strokeWidth;
+                  ctx.stroke();
+                  break;
+                }
+                case 'line':
+                case 'arrow': {
+                  const x1 = a.x * EDIT_PREVIEW_SCALE;
+                  const y1 = canvas.height - a.y * EDIT_PREVIEW_SCALE;
+                  const x2 = (a.x2 ?? a.x + (a.width || 100)) * EDIT_PREVIEW_SCALE;
+                  const y2 = canvas.height - (a.y2 ?? a.y) * EDIT_PREVIEW_SCALE;
+                  ctx.strokeStyle = primaryColor;
+                  ctx.lineWidth = strokeWidth;
+                  ctx.beginPath();
+                  ctx.moveTo(x1, y1);
+                  ctx.lineTo(x2, y2);
+                  ctx.stroke();
+
+                  if (a.type === 'arrow') {
+                    const angle = Math.atan2(y2 - y1, x2 - x1);
+                    const headLen = Math.max(10, strokeWidth * 3.5);
+                    const arrowAngle = Math.PI / 6;
+                    ctx.beginPath();
+                    ctx.moveTo(x2, y2);
+                    ctx.lineTo(x2 - headLen * Math.cos(angle - arrowAngle), y2 - headLen * Math.sin(angle - arrowAngle));
+                    ctx.moveTo(x2, y2);
+                    ctx.lineTo(x2 - headLen * Math.cos(angle + arrowAngle), y2 - headLen * Math.sin(angle + arrowAngle));
+                    ctx.stroke();
+                  }
+                  break;
+                }
+                case 'freehand': {
+                  if (a.points && a.points.length > 1) {
+                    ctx.strokeStyle = primaryColor;
+                    ctx.lineWidth = strokeWidth;
+                    ctx.lineCap = 'round';
+                    ctx.lineJoin = 'round';
+                    ctx.beginPath();
+                    const p0 = a.points[0];
+                    ctx.moveTo(p0.x * EDIT_PREVIEW_SCALE, canvas.height - p0.y * EDIT_PREVIEW_SCALE);
+                    for (let i = 1; i < a.points.length; i++) {
+                      const p = a.points[i];
+                      ctx.lineTo(p.x * EDIT_PREVIEW_SCALE, canvas.height - p.y * EDIT_PREVIEW_SCALE);
+                    }
+                    ctx.stroke();
+                  }
+                  break;
+                }
+                case 'stamp': {
+                  const stampText = (a.customStampText || a.stampType || 'APPROVED').toUpperCase();
+                  const cx = a.x * EDIT_PREVIEW_SCALE;
+                  const cy = canvas.height - a.y * EDIT_PREVIEW_SCALE - 44 * EDIT_PREVIEW_SCALE;
+                  const sw = Math.max(130, stampText.length * 11 + 24) * EDIT_PREVIEW_SCALE;
+                  const sh = 40 * EDIT_PREVIEW_SCALE;
+
+                  ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
+                  ctx.fillRect(cx, cy, sw, sh);
+                  ctx.strokeStyle = primaryColor;
+                  ctx.lineWidth = 2.5 * EDIT_PREVIEW_SCALE;
+                  ctx.strokeRect(cx, cy, sw, sh);
+                  ctx.lineWidth = 1 * EDIT_PREVIEW_SCALE;
+                  ctx.strokeRect(cx + 3, cy + 3, sw - 6, sh - 6);
+
+                  ctx.fillStyle = primaryColor;
+                  ctx.font = `bold ${13 * EDIT_PREVIEW_SCALE}px sans-serif`;
+                  ctx.textAlign = 'center';
+                  ctx.textBaseline = 'middle';
+                  ctx.fillText(stampText, cx + sw / 2, cy + sh / 2);
+                  ctx.textAlign = 'start';
+                  ctx.textBaseline = 'alphabetic';
+                  break;
+                }
+                case 'measurement': {
+                  const x1 = a.x * EDIT_PREVIEW_SCALE;
+                  const y1 = canvas.height - a.y * EDIT_PREVIEW_SCALE;
+                  const x2 = (a.x2 ?? a.x + (a.width || 120)) * EDIT_PREVIEW_SCALE;
+                  const y2 = canvas.height - (a.y2 ?? a.y) * EDIT_PREVIEW_SCALE;
+                  const distPx = Math.hypot((a.x2 ?? a.x + 120) - a.x, (a.y2 ?? a.y) - a.y);
+                  const ratio = a.scaleRatio || 0.3528;
+                  const unit = a.unit || 'mm';
+                  const label = `${(distPx * ratio).toFixed(1)} ${unit}`;
+
+                  ctx.strokeStyle = primaryColor;
+                  ctx.lineWidth = 1.5 * EDIT_PREVIEW_SCALE;
+                  ctx.beginPath();
+                  ctx.moveTo(x1, y1);
+                  ctx.lineTo(x2, y2);
+                  ctx.stroke();
+
+                  // Tick marks
+                  const angle = Math.atan2(y2 - y1, x2 - x1);
+                  const perp = angle + Math.PI / 2;
+                  const tick = 6 * EDIT_PREVIEW_SCALE;
+                  ctx.beginPath();
+                  ctx.moveTo(x1 - tick * Math.cos(perp), y1 - tick * Math.sin(perp));
+                  ctx.lineTo(x1 + tick * Math.cos(perp), y1 + tick * Math.sin(perp));
+                  ctx.moveTo(x2 - tick * Math.cos(perp), y2 - tick * Math.sin(perp));
+                  ctx.lineTo(x2 + tick * Math.cos(perp), y2 + tick * Math.sin(perp));
+                  ctx.stroke();
+
+                  // Badge
+                  const mx = (x1 + x2) / 2;
+                  const my = (y1 + y2) / 2;
+                  ctx.font = `bold ${10 * EDIT_PREVIEW_SCALE}px sans-serif`;
+                  const tw = ctx.measureText(label).width;
+                  ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
+                  ctx.fillRect(mx - tw / 2 - 4, my - 8 * EDIT_PREVIEW_SCALE, tw + 8, 16 * EDIT_PREVIEW_SCALE);
+                  ctx.strokeStyle = primaryColor;
+                  ctx.lineWidth = 1;
+                  ctx.strokeRect(mx - tw / 2 - 4, my - 8 * EDIT_PREVIEW_SCALE, tw + 8, 16 * EDIT_PREVIEW_SCALE);
+                  ctx.fillStyle = primaryColor;
+                  ctx.textAlign = 'center';
+                  ctx.textBaseline = 'middle';
+                  ctx.fillText(label, mx, my);
+                  ctx.textAlign = 'start';
+                  ctx.textBaseline = 'alphabetic';
+                  break;
+                }
+              }
+              ctx.restore();
             });
+
+          // Draw active in-progress shape
+          if (isDrawingShape && drawStartPoint && drawCurrentPoint) {
+            const x1 = drawStartPoint.x * EDIT_PREVIEW_SCALE;
+            const y1 = canvas.height - drawStartPoint.y * EDIT_PREVIEW_SCALE;
+            const x2 = drawCurrentPoint.x * EDIT_PREVIEW_SCALE;
+            const y2 = canvas.height - drawCurrentPoint.y * EDIT_PREVIEW_SCALE;
+
+            ctx.save();
+            ctx.strokeStyle = editColor;
+            ctx.lineWidth = editStrokeWidth * EDIT_PREVIEW_SCALE;
+
+            if (editToolType === 'rect' || editToolType === 'highlighter') {
+              const rx = Math.min(x1, x2);
+              const ry = Math.min(y1, y2);
+              const rw = Math.abs(x2 - x1);
+              const rh = Math.abs(y2 - y1);
+              if (editToolType === 'highlighter') {
+                ctx.fillStyle = editColor;
+                ctx.globalAlpha = 0.35;
+                ctx.fillRect(rx, ry, rw, rh);
+              } else {
+                if (editFillColor) {
+                  ctx.fillStyle = editFillColor;
+                  ctx.fillRect(rx, ry, rw, rh);
+                }
+                ctx.strokeRect(rx, ry, rw, rh);
+              }
+            } else if (editToolType === 'circle') {
+              const rx = Math.abs(x2 - x1) / 2;
+              const ry = Math.abs(y2 - y1) / 2;
+              const cx = Math.min(x1, x2) + rx;
+              const cy = Math.min(y1, y2) + ry;
+              ctx.beginPath();
+              ctx.ellipse(cx, cy, rx, ry, 0, 0, Math.PI * 2);
+              if (editFillColor) {
+                ctx.fillStyle = editFillColor;
+                ctx.fill();
+              }
+              ctx.stroke();
+            } else if (editToolType === 'line' || editToolType === 'arrow' || editToolType === 'measurement') {
+              ctx.beginPath();
+              ctx.moveTo(x1, y1);
+              ctx.lineTo(x2, y2);
+              ctx.stroke();
+            } else if (editToolType === 'freehand' && freehandPoints.length > 1) {
+              ctx.lineCap = 'round';
+              ctx.lineJoin = 'round';
+              ctx.beginPath();
+              const p0 = freehandPoints[0];
+              ctx.moveTo(p0.x * EDIT_PREVIEW_SCALE, canvas.height - p0.y * EDIT_PREVIEW_SCALE);
+              for (let i = 1; i < freehandPoints.length; i++) {
+                const p = freehandPoints[i];
+                ctx.lineTo(p.x * EDIT_PREVIEW_SCALE, canvas.height - p.y * EDIT_PREVIEW_SCALE);
+              }
+              ctx.stroke();
+            }
+            ctx.restore();
+          }
         }
 
         editPreviewCanvasRef.current = canvas;
         if (editPreviewContainerRef.current) {
           editPreviewContainerRef.current.innerHTML = '';
-          canvas.className = 'max-w-full h-auto rounded-lg border border-slate-200 shadow-sm cursor-crosshair';
+          canvas.className = 'max-w-full h-auto rounded-xl border border-slate-300 shadow-md cursor-crosshair select-none touch-none';
           editPreviewContainerRef.current.appendChild(canvas);
         }
       } catch (e) {
@@ -203,31 +449,249 @@ export default function PdfWorkspace({ toolId, toolName, onBack }: PdfWorkspaceP
     return () => {
       cancelled = true;
     };
-  }, [files, toolId, editPageNum, totalPageCount, editAnnotations]);
+  }, [
+    files, toolId, editPageNum, totalPageCount, visualAnnotations,
+    isDrawingShape, drawStartPoint, drawCurrentPoint, freehandPoints,
+    editColor, editStrokeWidth, editFillColor, editToolType, editOpacity
+  ]);
 
-  // Clicking the live preview sets the X/Y coordinates for the next annotation
-  const handleEditCanvasClick = (e: React.MouseEvent<HTMLDivElement>) => {
+  // Pointer event helpers for interactive drawing canvas
+  const getPdfCoordinatesFromEvent = (e: React.PointerEvent<HTMLDivElement>) => {
     const canvas = editPreviewCanvasRef.current;
-    if (!canvas) return;
+    if (!canvas) return null;
     const rect = canvas.getBoundingClientRect();
     const scaleX = canvas.width / rect.width;
     const scaleY = canvas.height / rect.height;
     const canvasX = (e.clientX - rect.left) * scaleX;
     const canvasY = (e.clientY - rect.top) * scaleY;
-    setEditX(Math.round(canvasX / EDIT_PREVIEW_SCALE));
-    setEditY(Math.round((canvas.height - canvasY) / EDIT_PREVIEW_SCALE));
+    const pdfX = Math.round(canvasX / EDIT_PREVIEW_SCALE);
+    const pdfY = Math.round((canvas.height - canvasY) / EDIT_PREVIEW_SCALE);
+    return { pdfX, pdfY };
   };
 
-  const addEditAnnotation = () => {
-    if (!editText.trim()) return;
-    setEditAnnotations((prev) => [
-      ...prev,
-      { page: editPageNum, text: editText, x: editX, y: editY, size: editSize, color: editColor },
-    ]);
+  const handleCanvasPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+    const coords = getPdfCoordinatesFromEvent(e);
+    if (!coords) return;
+    const { pdfX, pdfY } = coords;
+
+    setEditX(pdfX);
+    setEditY(pdfY);
+
+    if (editToolType === 'text') {
+      const newAnn: VisualAnnotation = {
+        id: `txt-${Date.now()}`,
+        type: 'text',
+        page: editPageNum,
+        x: pdfX,
+        y: pdfY,
+        text: editText || 'Sample Note',
+        fontSize: editSize,
+        color: editColor,
+        opacity: editOpacity,
+      };
+      setVisualAnnotations((prev) => [...prev, newAnn]);
+      return;
+    }
+
+    if (editToolType === 'stamp') {
+      const newAnn: VisualAnnotation = {
+        id: `stamp-${Date.now()}`,
+        type: 'stamp',
+        page: editPageNum,
+        x: pdfX,
+        y: pdfY,
+        stampType: editStampType,
+        customStampText: editStampType === 'CUSTOM' ? customStampText : undefined,
+        color: editColor,
+        opacity: editOpacity,
+      };
+      setVisualAnnotations((prev) => [...prev, newAnn]);
+      return;
+    }
+
+    if (editToolType === 'freehand') {
+      setIsDrawingShape(true);
+      setFreehandPoints([{ x: pdfX, y: pdfY }]);
+      return;
+    }
+
+    // Shapes: rect, circle, line, arrow, highlighter, measurement
+    setIsDrawingShape(true);
+    setDrawStartPoint({ x: pdfX, y: pdfY });
+    setDrawCurrentPoint({ x: pdfX, y: pdfY });
   };
 
-  const removeEditAnnotation = (index: number) => {
-    setEditAnnotations((prev) => prev.filter((_, i) => i !== index));
+  const handleCanvasPointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (!isDrawingShape) return;
+    const coords = getPdfCoordinatesFromEvent(e);
+    if (!coords) return;
+    const { pdfX, pdfY } = coords;
+
+    if (editToolType === 'freehand') {
+      setFreehandPoints((prev) => [...prev, { x: pdfX, y: pdfY }]);
+    } else {
+      setDrawCurrentPoint({ x: pdfX, y: pdfY });
+    }
+  };
+
+  const handleCanvasPointerUp = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (!isDrawingShape) return;
+    const coords = getPdfCoordinatesFromEvent(e);
+    const endX = coords ? coords.pdfX : (drawCurrentPoint?.x ?? editX);
+    const endY = coords ? coords.pdfY : (drawCurrentPoint?.y ?? editY);
+
+    if (editToolType === 'freehand' && freehandPoints.length > 1) {
+      const newAnn: VisualAnnotation = {
+        id: `free-${Date.now()}`,
+        type: 'freehand',
+        page: editPageNum,
+        x: freehandPoints[0].x,
+        y: freehandPoints[0].y,
+        points: freehandPoints,
+        color: editColor,
+        strokeWidth: editStrokeWidth,
+        opacity: editOpacity,
+      };
+      setVisualAnnotations((prev) => [...prev, newAnn]);
+    } else if (drawStartPoint) {
+      const startX = drawStartPoint.x;
+      const startY = drawStartPoint.y;
+
+      if (editToolType === 'rect' || editToolType === 'highlighter') {
+        const x = Math.min(startX, endX);
+        const y = Math.min(startY, endY);
+        const w = Math.max(10, Math.abs(endX - startX));
+        const h = Math.max(10, Math.abs(endY - startY));
+        const newAnn: VisualAnnotation = {
+          id: `rect-${Date.now()}`,
+          type: editToolType,
+          page: editPageNum,
+          x,
+          y,
+          width: w,
+          height: h,
+          color: editColor,
+          fillColor: editFillColor || undefined,
+          strokeWidth: editStrokeWidth,
+          opacity: editToolType === 'highlighter' ? 0.35 : editOpacity,
+        };
+        setVisualAnnotations((prev) => [...prev, newAnn]);
+      } else if (editToolType === 'circle') {
+        const x = Math.min(startX, endX);
+        const y = Math.min(startY, endY);
+        const w = Math.max(10, Math.abs(endX - startX));
+        const h = Math.max(10, Math.abs(endY - startY));
+        const newAnn: VisualAnnotation = {
+          id: `circle-${Date.now()}`,
+          type: 'circle',
+          page: editPageNum,
+          x,
+          y,
+          width: w,
+          height: h,
+          color: editColor,
+          fillColor: editFillColor || undefined,
+          strokeWidth: editStrokeWidth,
+          opacity: editOpacity,
+        };
+        setVisualAnnotations((prev) => [...prev, newAnn]);
+      } else if (editToolType === 'line' || editToolType === 'arrow') {
+        const newAnn: VisualAnnotation = {
+          id: `line-${Date.now()}`,
+          type: editToolType,
+          page: editPageNum,
+          x: startX,
+          y: startY,
+          x2: endX,
+          y2: endY,
+          color: editColor,
+          strokeWidth: editStrokeWidth,
+          opacity: editOpacity,
+        };
+        setVisualAnnotations((prev) => [...prev, newAnn]);
+      } else if (editToolType === 'measurement') {
+        const newAnn: VisualAnnotation = {
+          id: `measure-${Date.now()}`,
+          type: 'measurement',
+          page: editPageNum,
+          x: startX,
+          y: startY,
+          x2: endX,
+          y2: endY,
+          scaleRatio: editScaleRatio,
+          unit: editUnit,
+          color: editColor,
+          strokeWidth: 1.5,
+          opacity: editOpacity,
+        };
+        setVisualAnnotations((prev) => [...prev, newAnn]);
+      }
+    }
+
+    setIsDrawingShape(false);
+    setDrawStartPoint(null);
+    setDrawCurrentPoint(null);
+    setFreehandPoints([]);
+  };
+
+  const undoLastAnnotation = () => {
+    setVisualAnnotations((prev) => prev.slice(0, -1));
+  };
+
+  const clearPageAnnotations = () => {
+    setVisualAnnotations((prev) => prev.filter((a) => a.page !== editPageNum));
+  };
+
+  const removeVisualAnnotation = (id: string) => {
+    setVisualAnnotations((prev) => prev.filter((a) => a.id !== id));
+  };
+
+  // KillerPDF Organize Studio matrix handlers
+  const movePageItem = (fromIndex: number, toIndex: number) => {
+    if (toIndex < 0 || toIndex >= pageItems.length) return;
+    const newItems = [...pageItems];
+    const [moved] = newItems.splice(fromIndex, 1);
+    newItems.splice(toIndex, 0, moved);
+    setPageItems(newItems);
+  };
+
+  const rotatePageItem = (index: number) => {
+    setPageItems((prev) =>
+      prev.map((item, i) => (i === index ? { ...item, rotation: (item.rotation + 90) % 360 } : item))
+    );
+  };
+
+  const duplicatePageItem = (index: number) => {
+    const item = pageItems[index];
+    const newItem = { ...item, id: `p-dup-${Date.now()}` };
+    const newItems = [...pageItems.slice(0, index + 1), newItem, ...pageItems.slice(index + 1)];
+    setPageItems(newItems);
+  };
+
+  const deletePageItem = (index: number) => {
+    if (pageItems.length <= 1) {
+      setErrorMsg('You must have at least 1 page in the document.');
+      return;
+    }
+    setPageItems((prev) => prev.filter((_, i) => i !== index));
+  };
+
+  const rotateAllPages = () => {
+    setPageItems((prev) => prev.map((item) => ({ ...item, rotation: (item.rotation + 90) % 360 })));
+  };
+
+  const reverseAllPages = () => {
+    setPageItems((prev) => [...prev].reverse());
+  };
+
+  const resetPageItems = () => {
+    setPageItems(
+      Array.from({ length: totalPageCount }, (_, i) => ({
+        id: `p-${i}-${Date.now()}`,
+        originalIndex: i,
+        rotation: 0,
+      }))
+    );
   };
 
   // Handle Drag & Drop events
@@ -435,8 +899,11 @@ export default function PdfWorkspace({ toolId, toolName, onBack }: PdfWorkspaceP
           break;
         }
         case 'organize': {
+          if (pageItems.length === 0) {
+            throw new Error('You must keep at least one page in your document.');
+          }
           const buffer = await fileToArrayBuffer(files[0]);
-          outputBytes = await organizePdf(buffer, pageOrder);
+          outputBytes = await organizePdfAdvanced(buffer, pageItems.map(p => ({ originalIndex: p.originalIndex, rotation: p.rotation })));
           newName = `${files[0].name.replace('.pdf', '')}_organized.pdf`;
           break;
         }
@@ -459,7 +926,7 @@ export default function PdfWorkspace({ toolId, toolName, onBack }: PdfWorkspaceP
             throw new Error('Please enter a password.');
           }
           const buffer = await fileToArrayBuffer(files[0]);
-          outputBytes = encryptPdfBuffer(buffer, password);
+          outputBytes = await encryptPdfBuffer(buffer, password);
           newName = `${files[0].name.replace('.pdf', '')}_protected.pdf`;
           break;
         }
@@ -468,7 +935,7 @@ export default function PdfWorkspace({ toolId, toolName, onBack }: PdfWorkspaceP
             throw new Error('Please enter your decrypt password.');
           }
           const buffer = await fileToArrayBuffer(files[0]);
-          outputBytes = decryptPdfBuffer(buffer, password);
+          outputBytes = await decryptPdfBuffer(buffer, password);
           newName = `${files[0].name.replace('.pdf', '')}_unlocked.pdf`;
           break;
         }
@@ -544,31 +1011,54 @@ export default function PdfWorkspace({ toolId, toolName, onBack }: PdfWorkspaceP
           const size = 10;
           const lineHeight = 14;
           const maxWidth = w - margin * 2;
-          page.drawText(`Converted: ${files[0].name}`, { x: margin, y: currentY, size: 14, color: pdfRgb(0.2, 0.2, 0.2) });
+          page.drawText(`Converted: ${sanitizeForPdfFont(files[0].name)}`, { x: margin, y: currentY, size: 14, color: pdfRgb(0.2, 0.2, 0.2) });
           currentY -= 30;
           page.drawText(`Date: ${new Date().toLocaleString()}`, { x: margin, y: currentY, size: 9, color: pdfRgb(0.5, 0.5, 0.5) });
-          currentY -= 25;
-          page.drawText('─'.repeat(60), { x: margin, y: currentY, size: 8, color: pdfRgb(0.7, 0.7, 0.7) });
+          currentY -= 20;
+          page.drawLine({
+            start: { x: margin, y: currentY },
+            end: { x: w - margin, y: currentY },
+            thickness: 1,
+            color: pdfRgb(0.8, 0.8, 0.8),
+          });
           currentY -= 20;
 
-          const words = extractedText.split(/\s+/);
-          let line = '';
-          for (const word of words) {
-            const testLine = line ? `${line} ${word}` : word;
-            if (testLine.length * (size * 0.6) > maxWidth) {
-              page.drawText(line, { x: margin, y: currentY, size, color: pdfRgb(0.1, 0.1, 0.1) });
-              currentY -= lineHeight;
-              line = word;
+          const paragraphs = extractedText.split('\n');
+          for (const para of paragraphs) {
+            const cleanPara = sanitizeForPdfFont(para.trim());
+            if (!cleanPara) {
+              currentY -= lineHeight * 0.75;
               if (currentY < margin + 20) {
                 page = pdfDoc.addPage([w, h]);
                 currentY = h - margin;
               }
-            } else {
-              line = testLine;
+              continue;
             }
-          }
-          if (line && currentY >= margin) {
-            page.drawText(line, { x: margin, y: currentY, size, color: pdfRgb(0.1, 0.1, 0.1) });
+
+            const words = cleanPara.split(/\s+/);
+            let line = '';
+            for (const word of words) {
+              const testLine = line ? `${line} ${word}` : word;
+              if (testLine.length * (size * 0.55) > maxWidth && line) {
+                page.drawText(line, { x: margin, y: currentY, size, color: pdfRgb(0.1, 0.1, 0.1) });
+                currentY -= lineHeight;
+                line = word;
+                if (currentY < margin + 20) {
+                  page = pdfDoc.addPage([w, h]);
+                  currentY = h - margin;
+                }
+              } else {
+                line = testLine;
+              }
+            }
+            if (line) {
+              page.drawText(line, { x: margin, y: currentY, size, color: pdfRgb(0.1, 0.1, 0.1) });
+              currentY -= lineHeight;
+              if (currentY < margin + 20) {
+                page = pdfDoc.addPage([w, h]);
+                currentY = h - margin;
+              }
+            }
           }
           outputBytes = await pdfDoc.save();
           newName = `${files[0].name.split('.')[0]}_converted.pdf`;
@@ -594,15 +1084,11 @@ export default function PdfWorkspace({ toolId, toolName, onBack }: PdfWorkspaceP
               resultBlob = await pdfToDocxNative(buffer);
               resultFile = `${files[0].name.replace('.pdf', '')}.docx`;
             } else if (toolId === 'pdf-to-excel') {
-              const infos = await getPdfPageInfos(buffer);
-              const csvRows = ['Page,Content'];
-              infos.forEach(info => csvRows.push(`"${info.pageNumber}","${info.text.replace(/"/g, '""').substring(0, 200)}"`));
-              resultBlob = new Blob([csvRows.join('\n')], { type: 'text/csv' });
-              resultFile = `${files[0].name.replace('.pdf', '')}_extracted.csv`;
+              resultBlob = await pdfToXlsxNative(buffer);
+              resultFile = `${files[0].name.replace('.pdf', '')}.xlsx`;
             } else if (toolId === 'pdf-to-ppt') {
-              const infos = await getPdfPageInfos(buffer);
-              resultBlob = new Blob([infos.map(info => `Slide ${info.pageNumber}\n${'='.repeat(30)}\n${info.text.substring(0, 500)}`).join('\n\n')], { type: 'text/plain' });
-              resultFile = `${files[0].name.replace('.pdf', '')}_presentation.txt`;
+              resultBlob = await pdfToPptxNative(buffer);
+              resultFile = `${files[0].name.replace('.pdf', '')}.pptx`;
             } else if (toolId === 'pdf-to-jpg') {
               resultBlob = await pdfToZipOfJpgs(buffer);
               resultFile = `${files[0].name.replace('.pdf', '')}_images.zip`;
@@ -676,31 +1162,12 @@ export default function PdfWorkspace({ toolId, toolName, onBack }: PdfWorkspaceP
           return;
         }
         case 'edit': {
-          if (editAnnotations.length === 0) {
-            throw new Error('Click on the page preview to place text, then click "Add Text" before applying edits.');
+          if (visualAnnotations.length === 0) {
+            throw new Error('Please add at least one annotation, shape, stamp, or text mark on the page before processing.');
           }
           const buffer = await fileToArrayBuffer(files[0]);
-          const { PDFDocument, rgb } = await import('pdf-lib');
-          const pdfDoc = await PDFDocument.load(buffer);
-          const pages = pdfDoc.getPages();
-
-          for (const ann of editAnnotations) {
-            const pageIdx = Math.min(pages.length - 1, Math.max(0, ann.page - 1));
-            const page = pages[pageIdx];
-            const hex = ann.color.replace('#', '');
-            const r = parseInt(hex.substring(0, 2), 16) / 255 || 0;
-            const g = parseInt(hex.substring(2, 4), 16) / 255 || 0;
-            const b = parseInt(hex.substring(4, 6), 16) / 255 || 0;
-
-            page.drawText(ann.text, {
-              x: ann.x,
-              y: ann.y,
-              size: ann.size,
-              color: rgb(r, g, b)
-            });
-          }
-          outputBytes = await pdfDoc.save();
-          newName = `${files[0].name.replace('.pdf', '')}_edited.pdf`;
+          outputBytes = await applyVisualAnnotationsToPdf(buffer, visualAnnotations);
+          newName = `${files[0].name.replace('.pdf', '')}_annotated.pdf`;
           break;
         }
         case 'compare': {
@@ -979,8 +1446,8 @@ export default function PdfWorkspace({ toolId, toolName, onBack }: PdfWorkspaceP
         }
         case 'remove-metadata': {
           const buffer = await fileToArrayBuffer(files[0]);
-          outputBytes = await removeMetadata(buffer);
-          newName = `${files[0].name.replace('.pdf', '')}_clean.pdf`;
+          outputBytes = await deepSanitizePdf(buffer);
+          newName = `${files[0].name.replace('.pdf', '')}_sanitized.pdf`;
           break;
         }
         case 'redact-by-search': {
@@ -1073,16 +1540,28 @@ export default function PdfWorkspace({ toolId, toolName, onBack }: PdfWorkspaceP
     setResultBlobUrl(null);
     setIsSuccess(false);
     clearCanvas();
-    setEditAnnotations([]);
+    setVisualAnnotations([]);
     setEditPageNum(1);
+    setPageItems([]);
   };
 
-  const movePage = (fromIndex: number, toIndex: number) => {
-    if (toIndex < 0 || toIndex >= pageOrder.length) return;
-    const newOrder = [...pageOrder];
-    const [moved] = newOrder.splice(fromIndex, 1);
-    newOrder.splice(toIndex, 0, moved);
-    setPageOrder(newOrder);
+  const handlePipelineContinue = async (targetId: string, targetName: string) => {
+    if (!resultBlobUrl) return;
+    try {
+      const res = await fetch(resultBlobUrl);
+      const blob = await res.blob();
+      const cleanFileName = resultFileName || 'document.pdf';
+      const carried = new File([blob], cleanFileName, { type: 'application/pdf' });
+      if (onSwitchTool) {
+        onSwitchTool(targetId, targetName, [carried]);
+      } else {
+        setFiles([carried]);
+        setIsSuccess(false);
+        setResultBlobUrl(null);
+      }
+    } catch (err) {
+      console.error('Failed to continue pipeline', err);
+    }
   };
 
   return (
@@ -1128,6 +1607,44 @@ export default function PdfWorkspace({ toolId, toolName, onBack }: PdfWorkspaceP
               <RefreshCw className="w-4 h-4" />
               <span>Process another file</span>
             </button>
+          </div>
+
+          {/* Stirling-PDF Inspired Workflow Pipeline */}
+          <div className="mt-8 pt-6 border-t border-slate-200 w-full text-left">
+            <div className="flex items-center gap-2 mb-2">
+              <Sparkles className="w-4 h-4 text-red-600" />
+              <h3 className="font-bold text-slate-800 text-xs uppercase tracking-wider">
+                Workflow Pipeline — Continue in another tool
+              </h3>
+            </div>
+            <p className="text-xs text-slate-500 mb-4">
+              Pass this document directly to another tool with zero download-and-reupload:
+            </p>
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
+              {[
+                { id: 'compress', name: 'Compress PDF', icon: '🗜️' },
+                { id: 'watermark', name: 'Watermark', icon: '💧' },
+                { id: 'sign', name: 'Sign Document', icon: '✍️' },
+                { id: 'protect', name: 'Protect / Lock', icon: '🔒' },
+                { id: 'edit', name: 'Markup & Edit', icon: '✏️' },
+                { id: 'organize', name: 'Organize Matrix', icon: '📂' },
+                { id: 'remove-metadata', name: 'Sanitize Privacy', icon: '🛡️' },
+                { id: 'pdf-to-word', name: 'Convert to Word', icon: '📄' },
+                { id: 'pdf-to-png', name: 'Export PNGs', icon: '🖼️' },
+                { id: 'page-numbers', name: 'Page Numbers', icon: '#️⃣' },
+                { id: 'split', name: 'Split Pages', icon: '✂️' },
+                { id: 'rotate', name: 'Rotate PDF', icon: '🔄' },
+              ].map((pt) => (
+                <button
+                  key={pt.id}
+                  onClick={() => handlePipelineContinue(pt.id, pt.name)}
+                  className="flex items-center gap-2 p-2.5 rounded-xl bg-white border border-slate-200 hover:border-red-500 hover:bg-red-50/30 text-slate-700 hover:text-red-700 transition-all text-xs font-semibold shadow-sm text-left group"
+                >
+                  <span className="text-base">{pt.icon}</span>
+                  <span className="truncate">{pt.name}</span>
+                </button>
+              ))}
+            </div>
           </div>
         </main>
       ) : (
@@ -1292,16 +1809,86 @@ export default function PdfWorkspace({ toolId, toolName, onBack }: PdfWorkspaceP
                   </button>
                 </div>
 
-                {/* Edit Tool Visual Page Preview */}
+                {/* Open PDF Studio Interactive Vector Markup Studio */}
                 {toolId === 'edit' && files.length === 1 ? (
                   <div className="space-y-4">
-                    <div className="flex items-center justify-between">
+                    {/* Floating Vector Tool Bar */}
+                    <div className="bg-white border border-slate-200 rounded-2xl p-3 shadow-sm flex flex-wrap items-center justify-between gap-3">
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        {[
+                          { id: 'freehand', label: 'Pen', icon: <PenTool className="w-4 h-4" /> },
+                          { id: 'highlighter', label: 'Highlighter', icon: <Highlighter className="w-4 h-4" /> },
+                          { id: 'rect', label: 'Box', icon: <Square className="w-4 h-4" /> },
+                          { id: 'circle', label: 'Circle', icon: <Circle className="w-4 h-4" /> },
+                          { id: 'arrow', label: 'Arrow', icon: <ArrowRight className="w-4 h-4" /> },
+                          { id: 'text', label: 'Text', icon: <Type className="w-4 h-4" /> },
+                          { id: 'stamp', label: 'Stamp', icon: <Stamp className="w-4 h-4" /> },
+                          { id: 'measurement', label: 'Ruler', icon: <Ruler className="w-4 h-4" /> },
+                        ].map((t) => (
+                          <button
+                            key={t.id}
+                            onClick={() => setEditToolType(t.id as any)}
+                            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all ${
+                              editToolType === t.id
+                                ? 'bg-red-600 text-white shadow-md shadow-red-600/20'
+                                : 'bg-slate-50 hover:bg-slate-100 text-slate-700 border border-slate-200'
+                            }`}
+                          >
+                            {t.icon}
+                            <span>{t.label}</span>
+                          </button>
+                        ))}
+                      </div>
+
+                      <div className="flex items-center gap-2">
+                        {/* Quick Color Palette */}
+                        <div className="flex items-center gap-1.5 bg-slate-50 border border-slate-200 p-1 rounded-xl">
+                          {['#ef4444', '#10b981', '#3b82f6', '#f59e0b', '#8b5cf6', '#0f172a'].map((c) => (
+                            <button
+                              key={c}
+                              onClick={() => setEditColor(c)}
+                              className={`w-5 h-5 rounded-full transition-transform ${
+                                editColor === c ? 'scale-125 ring-2 ring-offset-1 ring-slate-400' : 'hover:scale-110'
+                              }`}
+                              style={{ backgroundColor: c }}
+                            />
+                          ))}
+                        </div>
+
+                        {/* Undo and Clear */}
+                        <button
+                          onClick={undoLastAnnotation}
+                          disabled={visualAnnotations.length === 0}
+                          title="Undo last markup"
+                          className="p-1.5 rounded-xl border border-slate-200 hover:bg-slate-100 disabled:opacity-30 text-slate-700"
+                        >
+                          <Undo className="w-4 h-4" />
+                        </button>
+                        <button
+                          onClick={clearPageAnnotations}
+                          title="Clear page markup"
+                          className="text-xs font-semibold px-2.5 py-1.5 rounded-xl border border-slate-200 hover:bg-red-50 hover:text-red-600 text-slate-500 transition-colors"
+                        >
+                          Clear Page
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Page Navigation and Info */}
+                    <div className="flex items-center justify-between px-1">
                       <p className="text-xs text-slate-500">
-                        Click anywhere on the page below to set where the next text goes, then use <span className="font-bold text-slate-700">&quot;Add Text&quot;</span> in the panel on the right.
+                        {editToolType === 'freehand' && '✏️ Drag on the page to draw freehand strokes.'}
+                        {editToolType === 'highlighter' && '🖍️ Drag over any area to apply a semi-transparent highlighter.'}
+                        {editToolType === 'rect' && '🔲 Click & drag to draw a vector box rectangle.'}
+                        {editToolType === 'circle' && '⭕ Click & drag to draw an ellipse or circle.'}
+                        {editToolType === 'arrow' && '➡️ Click & drag to draw a directional arrow.'}
+                        {editToolType === 'text' && '🔤 Click anywhere on the page to place a text note.'}
+                        {editToolType === 'stamp' && `🏷️ Click on the page to place the "${editStampType}" stamp.`}
+                        {editToolType === 'measurement' && '📏 Drag between 2 points to measure calibrated distance.'}
                       </p>
                       <div className="flex items-center gap-2 shrink-0 ml-4">
                         <button
-                          onClick={() => setEditPageNum(p => Math.max(1, p - 1))}
+                          onClick={() => setEditPageNum((p) => Math.max(1, p - 1))}
                           disabled={editPageNum <= 1}
                           className="p-1.5 rounded-lg border border-slate-200 hover:bg-slate-100 disabled:opacity-30"
                         >
@@ -1311,7 +1898,7 @@ export default function PdfWorkspace({ toolId, toolName, onBack }: PdfWorkspaceP
                           Page {editPageNum} / {totalPageCount || 1}
                         </span>
                         <button
-                          onClick={() => setEditPageNum(p => Math.min(totalPageCount || p, p + 1))}
+                          onClick={() => setEditPageNum((p) => Math.min(totalPageCount || p, p + 1))}
                           disabled={editPageNum >= (totalPageCount || 1)}
                           className="p-1.5 rounded-lg border border-slate-200 hover:bg-slate-100 disabled:opacity-30"
                         >
@@ -1319,21 +1906,42 @@ export default function PdfWorkspace({ toolId, toolName, onBack }: PdfWorkspaceP
                         </button>
                       </div>
                     </div>
+
+                    {/* Interactive Canvas Container */}
                     <div
                       ref={editPreviewContainerRef}
-                      onClick={handleEditCanvasClick}
-                      className="flex justify-center bg-slate-100 border border-slate-200 rounded-2xl p-4 min-h-[200px] items-center"
+                      onPointerDown={handleCanvasPointerDown}
+                      onPointerMove={handleCanvasPointerMove}
+                      onPointerUp={handleCanvasPointerUp}
+                      className="flex justify-center bg-slate-100/80 border border-slate-200 rounded-2xl p-6 min-h-[300px] items-center overflow-auto shadow-inner"
                     />
-                    {editAnnotations.length > 0 && (
+
+                    {/* Active Annotations Chips */}
+                    {visualAnnotations.length > 0 && (
                       <div className="space-y-2">
-                        <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Added text ({editAnnotations.length})</p>
+                        <div className="flex items-center justify-between">
+                          <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">
+                            Active Markups ({visualAnnotations.length})
+                          </p>
+                          <span className="text-[10px] text-slate-400">
+                            {visualAnnotations.filter((a) => a.page === editPageNum).length} on this page
+                          </span>
+                        </div>
                         <div className="flex flex-wrap gap-2">
-                          {editAnnotations.map((ann, idx) => (
-                            <div key={idx} className="flex items-center gap-2 bg-white border border-slate-200 rounded-lg px-3 py-1.5 text-xs shadow-sm">
+                          {visualAnnotations.map((ann) => (
+                            <div
+                              key={ann.id}
+                              className="flex items-center gap-2 bg-white border border-slate-200 rounded-xl px-3 py-1.5 text-xs shadow-sm"
+                            >
                               <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: ann.color }} />
-                              <span className="font-semibold text-slate-700 max-w-[140px] truncate">{ann.text}</span>
+                              <span className="font-semibold text-slate-700 capitalize">
+                                {ann.type} {ann.text ? `"${ann.text}"` : ann.stampType || ''}
+                              </span>
                               <span className="text-slate-400">p.{ann.page}</span>
-                              <button onClick={() => removeEditAnnotation(idx)} className="text-slate-400 hover:text-red-600">
+                              <button
+                                onClick={() => removeVisualAnnotation(ann.id)}
+                                className="text-slate-400 hover:text-red-600 transition-colors"
+                              >
                                 <Trash2 className="w-3.5 h-3.5" />
                               </button>
                             </div>
@@ -1343,43 +1951,107 @@ export default function PdfWorkspace({ toolId, toolName, onBack }: PdfWorkspaceP
                     )}
                   </div>
                 ) : toolId === 'organize' && files.length === 1 ? (
-                  <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-6 gap-4">
-                    {pageOrder.map((pageIdx, idx) => (
-                      <div 
-                        key={idx}
-                        className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm flex flex-col justify-between items-center h-40 relative group hover:border-red-500 transition-colors"
-                      >
-                        <div className="rounded-lg bg-slate-100 border border-slate-200 flex-1 w-full flex items-center justify-center font-mono font-bold text-slate-400">
-                          PDF Page {pageIdx + 1}
-                        </div>
-                        <div className="mt-3 flex items-center justify-between w-full text-xs">
-                          <span className="font-bold text-slate-500">Order: {idx + 1}</span>
-                          <div className="flex gap-1.5">
-                            <button 
-                              onClick={() => movePage(idx, idx - 1)}
-                              disabled={idx === 0}
-                              className="p-1 rounded hover:bg-slate-100 disabled:opacity-30"
-                            >
-                              ←
-                            </button>
-                            <button 
-                              onClick={() => movePage(idx, idx + 1)}
-                              disabled={idx === pageOrder.length - 1}
-                              className="p-1 rounded hover:bg-slate-100 disabled:opacity-30"
-                            >
-                              →
-                            </button>
-                            <button 
-                              onClick={() => setPageOrder(prev => prev.filter((_, i) => i !== idx))}
-                              className="p-1 rounded hover:bg-red-50 text-red-600"
-                              title="Delete Page"
-                            >
-                              <Trash2 className="w-3.5 h-3.5" />
-                            </button>
+                  <div className="space-y-4">
+                    {/* KillerPDF Organize Batch Actions Bar */}
+                    <div className="bg-white border border-slate-200 rounded-2xl p-3 shadow-sm flex flex-wrap items-center justify-between gap-3">
+                      <div className="flex items-center gap-2">
+                        <Layers className="w-4 h-4 text-red-600" />
+                        <span className="text-xs font-bold text-slate-700">
+                          {pageItems.length} Page{pageItems.length !== 1 ? 's' : ''} in Sequence
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <button
+                          onClick={rotateAllPages}
+                          className="flex items-center gap-1 text-xs font-semibold px-3 py-1.5 rounded-xl border border-slate-200 bg-slate-50 hover:bg-slate-100 text-slate-700 transition-all"
+                        >
+                          <RotateCw className="w-3.5 h-3.5 text-slate-500" />
+                          <span>Rotate All (+90°)</span>
+                        </button>
+                        <button
+                          onClick={reverseAllPages}
+                          className="flex items-center gap-1 text-xs font-semibold px-3 py-1.5 rounded-xl border border-slate-200 bg-slate-50 hover:bg-slate-100 text-slate-700 transition-all"
+                        >
+                          <ArrowUpDown className="w-3.5 h-3.5 text-slate-500" />
+                          <span>Reverse Sequence</span>
+                        </button>
+                        <button
+                          onClick={resetPageItems}
+                          className="text-xs font-semibold px-3 py-1.5 rounded-xl border border-slate-200 hover:bg-red-50 hover:text-red-600 text-slate-500 transition-all"
+                        >
+                          Reset
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Page Matrix Grid */}
+                    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4">
+                      {pageItems.map((item, idx) => (
+                        <div
+                          key={item.id}
+                          className="bg-white border border-slate-200 rounded-2xl p-3 shadow-sm flex flex-col justify-between items-center h-48 relative group hover:border-red-500 hover:shadow-md transition-all"
+                        >
+                          {/* Page Thumbnail Card */}
+                          <div
+                            className="rounded-xl bg-slate-50 border border-slate-200 flex-1 w-full flex flex-col items-center justify-center font-mono font-bold text-slate-500 relative overflow-hidden transition-transform"
+                            style={{ transform: `rotate(${item.rotation}deg)` }}
+                          >
+                            <span className="text-xs">Page {item.originalIndex + 1}</span>
+                          </div>
+
+                          {/* Rotation indicator badge */}
+                          {item.rotation > 0 && (
+                            <span className="absolute top-2 right-2 bg-amber-500 text-white text-[9px] font-bold px-1.5 py-0.5 rounded-md shadow-sm">
+                              {item.rotation}° ↻
+                            </span>
+                          )}
+
+                          {/* Footer Order and Actions */}
+                          <div className="mt-2.5 flex items-center justify-between w-full text-xs">
+                            <span className="font-bold text-slate-600 text-[11px]">#{idx + 1}</span>
+                            <div className="flex items-center gap-1">
+                              <button
+                                onClick={() => rotatePageItem(idx)}
+                                title="Rotate 90°"
+                                className="p-1 rounded-lg hover:bg-slate-100 text-slate-500 hover:text-slate-800 transition-colors"
+                              >
+                                <RotateCw className="w-3.5 h-3.5" />
+                              </button>
+                              <button
+                                onClick={() => duplicatePageItem(idx)}
+                                title="Duplicate Page"
+                                className="p-1 rounded-lg hover:bg-slate-100 text-slate-500 hover:text-slate-800 transition-colors"
+                              >
+                                <Copy className="w-3.5 h-3.5" />
+                              </button>
+                              <button
+                                onClick={() => movePageItem(idx, idx - 1)}
+                                disabled={idx === 0}
+                                title="Move Left"
+                                className="p-1 rounded-lg hover:bg-slate-100 disabled:opacity-20 text-slate-500"
+                              >
+                                ←
+                              </button>
+                              <button
+                                onClick={() => movePageItem(idx, idx + 1)}
+                                disabled={idx === pageItems.length - 1}
+                                title="Move Right"
+                                className="p-1 rounded-lg hover:bg-slate-100 disabled:opacity-20 text-slate-500"
+                              >
+                                →
+                              </button>
+                              <button
+                                onClick={() => deletePageItem(idx)}
+                                title="Delete Page"
+                                className="p-1 rounded-lg hover:bg-red-50 text-slate-400 hover:text-red-600 transition-colors"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
                           </div>
                         </div>
-                      </div>
-                    ))}
+                      ))}
+                    </div>
                   </div>
                 ) : (
                   // Normal Multi-file Card list
@@ -1953,88 +2625,199 @@ export default function PdfWorkspace({ toolId, toolName, onBack }: PdfWorkspaceP
                   </div>
                 )}
 
-                {/* 23. Edit PDF options */}
+                {/* Open PDF Studio Vector Controls Sidebar */}
                 {toolId === 'edit' && (
                   <div className="space-y-4">
-                    <div className="bg-red-50/40 p-3 border border-red-100 rounded-xl text-[11px] text-slate-500 leading-normal">
-                      Click the page preview to position text, adjust the details below, then press <strong>Add Text</strong>. Repeat for as many annotations as you need, on any page, then hit Process.
+                    <div className="bg-red-50/40 p-3 border border-red-100 rounded-xl text-[11px] text-slate-600 leading-normal">
+                      Active Tool: <strong className="text-red-600 uppercase">{editToolType}</strong>. Draw or click on the canvas to annotate in real time.
                     </div>
 
-                    <div>
-                      <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block mb-1">Target Page</label>
-                      <input
-                        type="number"
-                        min={1}
-                        max={totalPageCount || 1}
-                        value={editPageNum}
-                        onChange={e => setEditPageNum(Math.min(totalPageCount || 1, Math.max(1, parseInt(e.target.value) || 1)))}
-                        className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-xs focus:outline-none focus:border-red-500"
-                      />
-                    </div>
+                    {/* Stamp Tool Specific Options */}
+                    {editToolType === 'stamp' && (
+                      <div className="space-y-3">
+                        <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">Stamp Preset</label>
+                        <div className="grid grid-cols-2 gap-1.5">
+                          {(['APPROVED', 'REJECTED', 'CONFIDENTIAL', 'DRAFT', 'PAID', 'REVIEWED', 'FINAL', 'CUSTOM'] as const).map((st) => (
+                            <button
+                              key={st}
+                              onClick={() => {
+                                setEditStampType(st);
+                                if (st === 'APPROVED') setEditColor('#10b981');
+                                else if (st === 'REJECTED') setEditColor('#ef4444');
+                                else if (st === 'CONFIDENTIAL') setEditColor('#f59e0b');
+                                else if (st === 'DRAFT') setEditColor('#3b82f6');
+                                else if (st === 'PAID') setEditColor('#8b5cf6');
+                                else if (st === 'REVIEWED') setEditColor('#06b6d4');
+                              }}
+                              className={`py-1.5 px-2 text-[10px] font-bold rounded-lg border transition-all ${
+                                editStampType === st
+                                  ? 'bg-red-50 border-red-500 text-red-600 shadow-sm'
+                                  : 'bg-slate-50 border-slate-200 text-slate-700 hover:bg-slate-100'
+                              }`}
+                            >
+                              {st}
+                            </button>
+                          ))}
+                        </div>
+                        {editStampType === 'CUSTOM' && (
+                          <div>
+                            <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block mb-1">Custom Stamp Text</label>
+                            <input
+                              type="text"
+                              value={customStampText}
+                              onChange={(e) => setCustomStampText(e.target.value)}
+                              className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-xs focus:outline-none focus:border-red-500"
+                            />
+                          </div>
+                        )}
+                      </div>
+                    )}
 
-                    <div>
-                      <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block mb-1">Text Annotation</label>
-                      <input
-                        type="text"
-                        value={editText}
-                        onChange={e => setEditText(e.target.value)}
-                        className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-xs focus:outline-none focus:border-red-500"
-                      />
-                    </div>
+                    {/* Text Note Specific Options */}
+                    {editToolType === 'text' && (
+                      <div className="space-y-3">
+                        <div>
+                          <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block mb-1">Text Note Content</label>
+                          <input
+                            type="text"
+                            value={editText}
+                            onChange={(e) => setEditText(e.target.value)}
+                            className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-xs focus:outline-none focus:border-red-500"
+                          />
+                        </div>
+                        <div>
+                          <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block mb-1">Font Size ({editSize}px)</label>
+                          <input
+                            type="range"
+                            min={8}
+                            max={48}
+                            value={editSize}
+                            onChange={(e) => setEditSize(parseInt(e.target.value) || 14)}
+                            className="w-full accent-red-600"
+                          />
+                        </div>
+                      </div>
+                    )}
 
-                    <div className="grid grid-cols-2 gap-3">
+                    {/* Measurement Ruler Options */}
+                    {editToolType === 'measurement' && (
+                      <div className="space-y-3">
+                        <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">Measurement Unit</label>
+                        <div className="flex gap-2">
+                          {[
+                            { unit: 'mm', ratio: 0.3528 },
+                            { unit: 'cm', ratio: 0.03528 },
+                            { unit: 'in', ratio: 0.01389 },
+                            { unit: 'px', ratio: 1 },
+                          ].map((u) => (
+                            <button
+                              key={u.unit}
+                              onClick={() => {
+                                setEditUnit(u.unit);
+                                setEditScaleRatio(u.ratio);
+                              }}
+                              className={`flex-1 py-1.5 border text-xs font-bold rounded-lg transition-all ${
+                                editUnit === u.unit
+                                  ? 'bg-red-50 border-red-500 text-red-600'
+                                  : 'bg-slate-50 border-slate-200 text-slate-600'
+                              }`}
+                            >
+                              {u.unit}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Shape Stroke & Fill Options */}
+                    {(editToolType === 'rect' || editToolType === 'circle' || editToolType === 'line' || editToolType === 'arrow' || editToolType === 'freehand') && (
+                      <div className="space-y-3">
+                        <div>
+                          <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block mb-1">Stroke Width ({editStrokeWidth}px)</label>
+                          <div className="flex gap-2">
+                            {[1, 2, 4, 8].map((sw) => (
+                              <button
+                                key={sw}
+                                onClick={() => setEditStrokeWidth(sw)}
+                                className={`flex-1 py-1.5 border text-xs font-bold rounded-lg transition-all ${
+                                  editStrokeWidth === sw
+                                    ? 'bg-red-50 border-red-500 text-red-600'
+                                    : 'bg-slate-50 border-slate-200 text-slate-600'
+                                }`}
+                              >
+                                {sw}px
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+
+                        {(editToolType === 'rect' || editToolType === 'circle') && (
+                          <div>
+                            <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block mb-1">Fill Color</label>
+                            <div className="flex gap-2">
+                              {[
+                                { label: 'None', color: '' },
+                                { label: 'White', color: '#ffffff' },
+                                { label: 'Yellow', color: '#fef08a' },
+                                { label: 'Light Red', color: '#fee2e2' },
+                              ].map((f) => (
+                                <button
+                                  key={f.label}
+                                  onClick={() => setEditFillColor(f.color)}
+                                  className={`flex-1 py-1.5 border text-[10px] font-bold rounded-lg transition-all ${
+                                    editFillColor === f.color
+                                      ? 'bg-red-50 border-red-500 text-red-600'
+                                      : 'bg-slate-50 border-slate-200 text-slate-600'
+                                  }`}
+                                >
+                                  {f.label}
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    {/* Color Picker & Opacity Slider */}
+                    <div className="space-y-3 pt-2 border-t border-slate-100">
                       <div>
-                        <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block mb-1">Color</label>
+                        <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block mb-1">Primary Color</label>
+                        <div className="flex items-center gap-2">
+                          <input
+                            type="color"
+                            value={editColor}
+                            onChange={(e) => setEditColor(e.target.value)}
+                            className="w-10 h-8 bg-slate-50 border border-slate-200 rounded-lg p-0.5 cursor-pointer"
+                          />
+                          <input
+                            type="text"
+                            value={editColor}
+                            onChange={(e) => setEditColor(e.target.value)}
+                            className="flex-1 bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs font-mono"
+                          />
+                        </div>
+                      </div>
+
+                      <div>
+                        <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block mb-1">
+                          Opacity ({Math.round(editOpacity * 100)}%)
+                        </label>
                         <input
-                          type="color"
-                          value={editColor}
-                          onChange={e => setEditColor(e.target.value)}
-                          className="w-full h-9 bg-slate-50 border border-slate-200 rounded-lg p-0.5 cursor-pointer"
+                          type="range"
+                          min={0.1}
+                          max={1}
+                          step={0.05}
+                          value={editOpacity}
+                          onChange={(e) => setEditOpacity(parseFloat(e.target.value) || 1)}
+                          className="w-full accent-red-600"
                         />
                       </div>
-                      <div>
-                        <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block mb-1">Font Size</label>
-                        <input
-                          type="number"
-                          value={editSize}
-                          onChange={e => setEditSize(parseInt(e.target.value) || 12)}
-                          className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-xs focus:outline-none focus:border-red-500"
-                        />
-                      </div>
                     </div>
 
-                    <div className="grid grid-cols-2 gap-3">
-                      <div>
-                        <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block mb-1">X Coord</label>
-                        <input
-                          type="number"
-                          value={editX}
-                          onChange={e => setEditX(parseInt(e.target.value) || 0)}
-                          className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-xs focus:outline-none focus:border-red-500"
-                        />
-                      </div>
-                      <div>
-                        <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block mb-1">Y Coord</label>
-                        <input
-                          type="number"
-                          value={editY}
-                          onChange={e => setEditY(parseInt(e.target.value) || 0)}
-                          className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-xs focus:outline-none focus:border-red-500"
-                        />
-                      </div>
-                    </div>
-
-                    <button
-                      onClick={addEditAnnotation}
-                      disabled={!editText.trim()}
-                      className="w-full bg-slate-800 hover:bg-slate-700 disabled:opacity-40 text-white font-bold text-xs py-2.5 rounded-lg transition-colors"
-                    >
-                      + Add Text
-                    </button>
-
-                    {editAnnotations.length === 0 && (
-                      <p className="text-[10px] text-amber-600 bg-amber-50 border border-amber-100 rounded-lg px-3 py-2">
-                        No text added yet — Process will do nothing until you add at least one annotation.
+                    {visualAnnotations.length === 0 && (
+                      <p className="text-[10px] text-amber-700 bg-amber-50 border border-amber-200 rounded-xl p-3 leading-relaxed">
+                        ✏️ Click or drag on the page preview to add vector markups, text notes, stamps, or measurements.
                       </p>
                     )}
                   </div>

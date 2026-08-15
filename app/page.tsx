@@ -110,6 +110,7 @@ function HomeInner() {
   // Track user-selected tool separately so both URL and clicks work
   const [userSelectedTool, setUserSelectedTool] = useState<string | null>(null);
   const [userSelectedToolName, setUserSelectedToolName] = useState('');
+  const [carriedFiles, setCarriedFiles] = useState<File[]>([]);
   const activeTool = userSelectedTool ?? toolFromUrl?.id ?? null;
   const activeToolName = userSelectedToolName ?? toolFromUrl?.name ?? '';
 
@@ -478,14 +479,16 @@ function HomeInner() {
     }
   ];
 
-  const handleSelectTool = (id: string, name: string) => {
+  const handleSelectTool = (id: string, name: string, initialFiles?: File[]) => {
     setUserSelectedTool(id);
     setUserSelectedToolName(name);
+    setCarriedFiles(initialFiles || []);
   };
 
   const handleBackToDashboard = () => {
     setUserSelectedTool(null);
     setUserSelectedToolName('');
+    setCarriedFiles([]);
     // Clear the query param so back navigation works cleanly
     router.push('/');
   };
@@ -499,6 +502,8 @@ function HomeInner() {
           toolId={activeTool}
           toolName={activeToolName}
           onBack={handleBackToDashboard}
+          onSwitchTool={handleSelectTool}
+          initialFiles={carriedFiles}
         />
       ) : (
         <>
