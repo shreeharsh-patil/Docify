@@ -51,6 +51,10 @@ const toolSlugMap: Record<string, { id: string; name: string }> = {
     'sign-pdf':      { id: 'sign',         name: 'Sign PDF' },
     'edit':          { id: 'edit',         name: 'Edit PDF' },
     'edit-pdf':      { id: 'edit',         name: 'Edit PDF' },
+    'edit-text':     { id: 'edit-text',    name: 'Edit Text' },
+    'edit-text-pdf': { id: 'edit-text',    name: 'Edit Text' },
+    'text-editor':   { id: 'edit-text',    name: 'Edit Text' },
+    'pdf-text-editor': { id: 'edit-text',  name: 'Edit Text' },
     'ocr':           { id: 'ocr',          name: 'OCR PDF' },
     'ocr-pdf':       { id: 'ocr',          name: 'OCR PDF' },
     'ai-summarizer': { id: 'ai-summarizer', name: 'AI Summarizer' },
@@ -89,6 +93,28 @@ const toolSlugMap: Record<string, { id: string; name: string }> = {
     'bates-numbering': { id: 'bates-numbering', name: 'Bates Numbering' },
     'form-extract':  { id: 'form-extract',  name: 'Extract Form Data' },
     'validate-pdfua': { id: 'validate-pdfua', name: 'PDF/UA Validator' },
+    'overlay':       { id: 'overlay',       name: 'Overlay PDF' },
+    'overlay-pdf':   { id: 'overlay',       name: 'Overlay PDF' },
+    'add-image':     { id: 'add-image',     name: 'Add Image to PDF' },
+    'remove-annotations': { id: 'remove-annotations', name: 'Remove Annotations' },
+    'scale-pages':   { id: 'scale-pages',   name: 'Scale Pages' },
+    'booklet':       { id: 'booklet',       name: 'Booklet Imposition' },
+    'booklet-imposition': { id: 'booklet',  name: 'Booklet Imposition' },
+    'pdf-info':      { id: 'pdf-info',      name: 'Get PDF Info' },
+    'sanitize':      { id: 'sanitize',      name: 'Sanitize PDF' },
+    'sanitize-pdf':  { id: 'sanitize',      name: 'Sanitize PDF' },
+    'replace-colors': { id: 'replace-colors', name: 'Replace Colors' },
+    'auto-rename':   { id: 'auto-rename',   name: 'Auto Rename' },
+    'show-javascript': { id: 'show-javascript', name: 'Show JavaScript' },
+    'extract-images': { id: 'extract-images', name: 'Extract Images' },
+    'pdf-to-csv':    { id: 'pdf-to-csv',    name: 'PDF to CSV' },
+    'scanner-effect': { id: 'scanner-effect', name: 'Scanner Effect' },
+    'md-to-pdf':     { id: 'md-to-pdf',     name: 'Markdown to PDF' },
+    'markdown-to-pdf': { id: 'md-to-pdf',   name: 'Markdown to PDF' },
+    'pdf-to-xml':    { id: 'pdf-to-xml',    name: 'PDF to XML' },
+    'certificate-sign': { id: 'certificate-sign', name: 'Certificate Sign' },
+    'validate-signature': { id: 'validate-signature', name: 'Validate Signature' },
+    'find-replace-text': { id: 'find-replace-text', name: 'Find & Replace Text' },
   };
 
 // Inner component that safely uses useSearchParams inside Suspense
@@ -394,6 +420,13 @@ function HomeInner() {
       icon: <Edit3 className="w-8 h-8 text-red-500" />
     },
     { 
+      id: 'edit-text', 
+      name: 'Edit Text', 
+      desc: 'Click on any text in the document and edit it in place — the original text is covered and redrawn.',
+      category: 'Security',
+      icon: <Edit3 className="w-8 h-8 text-red-500" />
+    },
+    { 
       id: 'compare', 
       name: 'Compare PDF', 
       desc: 'Upload two PDF documents side-by-side and highlight structural differences.',
@@ -476,6 +509,134 @@ function HomeInner() {
       desc: 'Extract and translate English text documents to multilingual outline segments.',
       category: 'Security',
       icon: <Languages className="w-8 h-8 text-red-500" />
+    },
+    { 
+      id: 'sanitize', 
+      name: 'Sanitize PDF', 
+      desc: 'Scrub private metadata — title, author, dates — from your PDF before sharing it.',
+      category: 'Security',
+      icon: <ShieldCheck className="w-8 h-8 text-red-500" />
+    },
+
+    // 5. Advanced / Content tools (Stirling-PDF inspired)
+    { 
+      id: 'overlay', 
+      name: 'Overlay PDF', 
+      desc: 'Layer one or more PDFs on top of a base document, with adjustable opacity.',
+      category: 'Optimize',
+      icon: <Layers className="w-8 h-8 text-red-500" />
+    },
+    { 
+      id: 'add-image', 
+      name: 'Add Image to PDF', 
+      desc: 'Insert a JPG or PNG image onto any page, positioned and sized to your liking.',
+      category: 'Optimize',
+      icon: <ImageIcon className="w-8 h-8 text-red-500" />
+    },
+    { 
+      id: 'remove-annotations', 
+      name: 'Remove Annotations', 
+      desc: 'Strip comments, highlights, sticky notes, and links from every page.',
+      category: 'Optimize',
+      icon: <Eraser className="w-8 h-8 text-red-500" />
+    },
+    { 
+      id: 'scale-pages', 
+      name: 'Scale Pages', 
+      desc: 'Resize every page and its content proportionally, from 50% to 125%.',
+      category: 'Optimize',
+      icon: <Crop className="w-8 h-8 text-red-500" />
+    },
+    { 
+      id: 'booklet', 
+      name: 'Booklet Imposition', 
+      desc: 'Rearrange pages into 2-up sheets so a duplex-printed booklet reads in order.',
+      category: 'Optimize',
+      icon: <BookOpen className="w-8 h-8 text-red-500" />
+    },
+    { 
+      id: 'pdf-info', 
+      name: 'Get PDF Info', 
+      desc: 'Inspect page count, dimensions, metadata, and form fields of any PDF.',
+      category: 'Optimize',
+      icon: <Info className="w-8 h-8 text-red-500" />
+    },
+    { 
+      id: 'replace-colors', 
+      name: 'Replace Colors', 
+      desc: 'Swap every occurrence of one color for another across the whole document.',
+      category: 'Optimize',
+      icon: <Droplet className="w-8 h-8 text-red-500" />
+    },
+    { 
+      id: 'auto-rename', 
+      name: 'Auto Rename', 
+      desc: 'Name your PDF after its first line of text — automatically.',
+      category: 'Optimize',
+      icon: <FileText className="w-8 h-8 text-red-500" />
+    },
+    { 
+      id: 'extract-images', 
+      name: 'Extract Images', 
+      desc: 'Pull every embedded image out of a PDF into a downloadable ZIP.',
+      category: 'Convert',
+      icon: <ImageIcon className="w-8 h-8 text-red-500" />
+    },
+    { 
+      id: 'pdf-to-csv', 
+      name: 'PDF to CSV', 
+      desc: 'Reconstruct tables and text lines from a PDF into a CSV spreadsheet.',
+      category: 'Convert',
+      icon: <FileSpreadsheet className="w-8 h-8 text-red-500" />
+    },
+    { 
+      id: 'show-javascript', 
+      name: 'Show JavaScript', 
+      desc: 'Reveal embedded scripts hidden in document actions and name trees.',
+      category: 'Security',
+      icon: <Code2 className="w-8 h-8 text-red-500" />
+    },
+    { 
+      id: 'scanner-effect', 
+      name: 'Scanner Effect', 
+      desc: 'Give any PDF a photocopied look — grayscale, noise, and slight skew.',
+      category: 'Security',
+      icon: <Scan className="w-8 h-8 text-red-500" />
+    },
+    { 
+      id: 'md-to-pdf', 
+      name: 'Markdown to PDF', 
+      desc: 'Write Markdown and compile it into a clean, formatted PDF document.',
+      category: 'Convert',
+      icon: <FileType className="w-8 h-8 text-red-500" />
+    },
+    { 
+      id: 'pdf-to-xml', 
+      name: 'PDF to XML', 
+      desc: 'Reconstruct a PDF as structured XML with page, line, and word nodes.',
+      category: 'Convert',
+      icon: <Code2 className="w-8 h-8 text-red-500" />
+    },
+    { 
+      id: 'find-replace-text', 
+      name: 'Find & Replace Text', 
+      desc: 'Mask and rewrite exact words across your document, client-side.',
+      category: 'Security',
+      icon: <Search className="w-8 h-8 text-red-500" />
+    },
+    { 
+      id: 'certificate-sign', 
+      name: 'Certificate Sign', 
+      desc: 'Sign a PDF with a real PKCS#12 certificate — a verifiable digital signature.',
+      category: 'Security',
+      icon: <ShieldCheck className="w-8 h-8 text-red-500" />
+    },
+    { 
+      id: 'validate-signature', 
+      name: 'Validate Signature', 
+      desc: 'Verify digital signatures and inspect signer and certificate details.',
+      category: 'Security',
+      icon: <Shield className="w-8 h-8 text-red-500" />
     }
   ];
 

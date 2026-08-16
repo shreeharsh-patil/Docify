@@ -20,11 +20,16 @@ import {
   extractFormData, validatePdfuaCompliance, pdfToMarkdownNative, pdfToDocxNative,
   pdfToXlsxNative, pdfToPptxNative,
   applyVisualAnnotationsToPdf, VisualAnnotation, organizePdfAdvanced, PageOrganizeItem,
-  deepSanitizePdf, inspectPdfDetails, PdfInspectionReport, sanitizeForPdfFont
+  deepSanitizePdf, inspectPdfDetails, PdfInspectionReport, sanitizeForPdfFont,
+  overlayPdfs, addImageToPdf, removeAnnotations, scalePages, bookletImposition,
+  replaceColors, slugifyFilename, setPdfTitle, extractJavascriptFromPdf,
+  extractImagesToZip, pdfToCsv, scannerEffectPdf,
+  markdownToPdf, pdfToXml, findReplaceTextPdf, ocrPdf, certificateSignPdf,
+  validateSignaturePdf, SignatureInfo, comparePdfsVisual, editPdfText, TextEditItem
 } from '@/lib/pdfProcessor';
 import { processViaILovePDF } from '@/lib/ilovepdf-client';
 import { processWithAI } from '@/lib/ai-client';
-import { extractTextFromPdf, pdfToZipOfJpgs, getPdfPageInfos } from '@/lib/pdf-client';
+import { extractTextFromPdf, pdfToZipOfJpgs, getPdfPageInfos, getTextOverlayItems, TextOverlayItem } from '@/lib/pdf-client';
 import confetti from 'canvas-confetti';
 
 interface PdfWorkspaceProps {
@@ -160,9 +165,48 @@ export default function PdfWorkspace({ toolId, toolName, onBack, onSwitchTool, i
   const [redactSearchText, setRedactSearchText] = useState('CONFIDENTIAL');
   const [pdfuaResult, setPdfuaResult] = useState<{ passed: boolean; issues: string[] } | null>(null);
 
+  // Stirling-PDF inspired tool states
+  const [overlayOpacity, setOverlayOpacity] = useState(0.8);
+  const [scalePercent, setScalePercent] = useState(75);
+  const [imageToAdd, setImageToAdd] = useState<string | null>(null);
+  const [addImagePage, setAddImagePage] = useState(1);
+  const [addImageX, setAddImageX] = useState(50);
+  const [addImageY, setAddImageY] = useState(50);
+  const [addImageWidth, setAddImageWidth] = useState(200);
+  const [addImageOpacity, setAddImageOpacity] = useState(1);
+  const [pdfInfoResult, setPdfInfoResult] = useState<PdfInspectionReport | null>(null);
+
+  // Reimplemented Stirling-PDF tool states
+  const [replaceFrom, setReplaceFrom] = useState('#ff0000');
+  const [replaceTo, setReplaceTo] = useState('#0000ff');
+  const [scannerAngle, setScannerAngle] = useState(1.5);
+  const [scannerNoise, setScannerNoise] = useState(8);
+  const [scannerGrayscale, setScannerGrayscale] = useState(true);
+  const [jsResult, setJsResult] = useState<{ name: string; source: string }[] | null>(null);
+
+  // Final Stirling feature states
+  const [mdContent, setMdContent] = useState(`# Welcome to Markdown to PDF\n\nWrite **Markdown** here and Docify will render it into a clean PDF:\n\n- **Bold** and *italic* text\n- Headings, lists, quotes, and \`code\`\n- [Links](https://stirling.com)\n\n> Everything is compiled client-side.`);
+  const [p12File, setP12File] = useState<File | null>(null);
+  const [p12Password, setP12Password] = useState('');
+  const [certSignName, setCertSignName] = useState('');
+  const [sigResult, setSigResult] = useState<SignatureInfo[] | null>(null);
+  const [sigError, setSigError] = useState<string | null>(null);
+  const [findText, setFindText] = useState('');
+  const [replaceText, setReplaceText] = useState('');
+  const [findCaseSensitive, setFindCaseSensitive] = useState(false);
+  const [ocrProgress, setOcrProgress] = useState<number | null>(null);
+
+  // In-place Text Editor state (real text editing, not annotation notes)
+  const [editTextPage, setEditTextPage] = useState(1);
+  const [editTextColor, setEditTextColor] = useState('#000000');
+  const [textOverlayItems, setTextOverlayItems] = useState<TextOverlayItem[]>([]);
+  const [textEdits, setTextEdits] = useState<Record<string, TextEditItem>>({});
+  const editTextCanvasHostRef = useRef<HTMLDivElement | null>(null);
+  const EDIT_TEXT_SCALE = 2;
+
   // Initialize Organize indexes and Edit states when a file is uploaded
   useEffect(() => {
-    if (files.length === 1 && (toolId === 'organize' || toolId === 'sign' || toolId === 'edit')) {
+    if (files.length === 1 && (toolId === 'organize' || toolId === 'sign' || toolId === 'edit' || toolId === 'edit-text')) {
       const getPageCount = async () => {
         try {
           const buffer = await fileToArrayBuffer(files[0]);
@@ -175,6 +219,11 @@ export default function PdfWorkspace({ toolId, toolName, onBack, onSwitchTool, i
           if (toolId === 'edit') {
             setVisualAnnotations([]);
             setEditPageNum(1);
+          }
+          if (toolId === 'edit-text') {
+            setTextEdits({});
+            setTextOverlayItems([]);
+            setEditTextPage(1);
           }
         } catch (e) {
           console.error(e);
@@ -455,6 +504,67 @@ export default function PdfWorkspace({ toolId, toolName, onBack, onSwitchTool, i
     editColor, editStrokeWidth, editFillColor, editToolType, editOpacity
   ]);
 
+  // Render a live in-place text editing overlay for Edit Text (real text editor)
+  useEffect(() => {
+    if (toolId !== 'edit-text' || files.length !== 1) return;
+    let cancelled = false;
+
+    (async () => {
+      try {
+        const buffer = await fileToArrayBuffer(files[0]);
+        const { renderPdfPageToCanvas } = await import('@/lib/pdf-client');
+        const canvas = await renderPdfPageToCanvas(buffer, editTextPage, EDIT_TEXT_SCALE);
+        if (cancelled) return;
+
+        // Display the canvas at 1 CSS px = 1 PDF point so overlay coords map 1:1.
+        canvas.style.width = `${canvas.width / EDIT_TEXT_SCALE}px`;
+        canvas.style.height = `${canvas.height / EDIT_TEXT_SCALE}px`;
+        canvas.className = 'rounded-xl border border-slate-300 shadow-md select-none';
+
+        if (editTextCanvasHostRef.current) {
+          editTextCanvasHostRef.current.innerHTML = '';
+          editTextCanvasHostRef.current.appendChild(canvas);
+        }
+
+        const overlay = await getTextOverlayItems(buffer, editTextPage, EDIT_TEXT_SCALE);
+        if (cancelled) return;
+        setTextOverlayItems(overlay);
+      } catch (e) {
+        console.error('Edit text overlay render failed', e);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [files, toolId, editTextPage]);
+
+  // In-place text editing helpers
+  const handleTextEditChange = (key: string, item: TextOverlayItem, value: string) => {
+    setTextEdits((prev) => {
+      const next = { ...prev };
+      if (value === item.str && next[key]) {
+        // Reverted to the original → drop the edit so it isn't reprocessed.
+        delete next[key];
+      } else {
+        next[key] = {
+          id: key,
+          page: editTextPage,
+          x: item.x,
+          y: item.y,
+          width: item.width,
+          height: item.height,
+          newText: value,
+        };
+      }
+      return next;
+    });
+  };
+
+  const resetTextEdits = () => {
+    setTextEdits({});
+  };
+
   // Pointer event helpers for interactive drawing canvas
   const getPdfCoordinatesFromEvent = (e: React.PointerEvent<HTMLDivElement>) => {
     const canvas = editPreviewCanvasRef.current;
@@ -733,7 +843,7 @@ export default function PdfWorkspace({ toolId, toolName, onBack, onSwitchTool, i
     } else if (toolId === 'ppt-to-pdf') {
       allowedExtensions = ['.ppt', '.pptx'];
       errorMsgText = 'Only PowerPoint files (.ppt, .pptx) are supported.';
-    } else if (toolId === 'txt-to-pdf') {
+    } else if (toolId === 'txt-to-pdf' || toolId === 'md-to-pdf') {
       // No file needed, works with text input directly
       return;
     } else {
@@ -752,8 +862,8 @@ export default function PdfWorkspace({ toolId, toolName, onBack, onSwitchTool, i
     }
 
     setErrorMsg(null);
-    // Allow multi-file uploads for merge, image conversions, compare, and camera scans
-    if (toolId === 'merge' || toolId === 'jpg-to-pdf' || toolId === 'scan' || toolId === 'compare') {
+    // Allow multi-file uploads for merge, image conversions, compare, overlay, and camera scans
+    if (toolId === 'merge' || toolId === 'jpg-to-pdf' || toolId === 'scan' || toolId === 'compare' || toolId === 'overlay') {
       setFiles(prev => [...prev, ...validFiles]);
     } else {
       setFiles([validFiles[0]]); // single file tools
@@ -871,7 +981,7 @@ export default function PdfWorkspace({ toolId, toolName, onBack, onSwitchTool, i
 
   // Execute PDF processing operations
   const handleProcess = async () => {
-    if (files.length === 0) return;
+    if (files.length === 0 && toolId !== 'txt-to-pdf' && toolId !== 'md-to-pdf' && toolId !== 'html-to-pdf') return;
     setIsProcessing(true);
     setErrorMsg(null);
 
@@ -882,13 +992,25 @@ export default function PdfWorkspace({ toolId, toolName, onBack, onSwitchTool, i
       switch (toolId) {
         case 'merge': {
           const buffers = await Promise.all(files.map(fileToArrayBuffer));
-          outputBytes = await mergePdfs(buffers);
+          // qpdf merges losslessly (streams/objects copied verbatim); fall back
+          // to pdf-lib if the WASM is unavailable.
+          try {
+            const { mergePdfsLossless } = await import('@/lib/pdf-qpdf');
+            outputBytes = await mergePdfsLossless(buffers);
+          } catch {
+            outputBytes = await mergePdfs(buffers);
+          }
           newName = 'merged_documents.pdf';
           break;
         }
         case 'split': {
           const buffer = await fileToArrayBuffer(files[0]);
-          outputBytes = await splitPdf(buffer, splitStart, splitEnd);
+          try {
+            const { splitPdfLossless } = await import('@/lib/pdf-qpdf');
+            outputBytes = await splitPdfLossless(buffer, splitStart, splitEnd);
+          } catch {
+            outputBytes = await splitPdf(buffer, splitStart, splitEnd);
+          }
           newName = `${files[0].name.replace('.pdf', '')}_split_${splitStart}-${splitEnd}.pdf`;
           break;
         }
@@ -972,13 +1094,38 @@ export default function PdfWorkspace({ toolId, toolName, onBack, onSwitchTool, i
         }
         case 'compress': {
           const buffer = await fileToArrayBuffer(files[0]);
-          outputBytes = await compressPdf(buffer);
+          // 8-pass compressor (stream recompress + font unembed + object dedup
+          // + metadata strip + unreferenced removal) followed by harfbuzz font
+          // subsetting. Falls back to the naive re-save if anything goes wrong.
+          try {
+            const { compressPdfAdvanced } = await import('@/lib/pdf-compress');
+            const { bytes } = await compressPdfAdvanced(buffer, {
+              level: 9,
+              stripMetadata: true,
+              unembedStandardFonts: true,
+            });
+            // Font subsetting: keep only the glyphs actually used in the doc.
+            try {
+              const { subsetPdfFonts } = await import('@/lib/pdf-font-subset');
+              const res = await subsetPdfFonts(bytes.buffer as ArrayBuffer);
+              outputBytes = res.bytes;
+            } catch {
+              outputBytes = bytes;
+            }
+          } catch {
+            outputBytes = await compressPdf(buffer);
+          }
           newName = `${files[0].name.replace('.pdf', '')}_compressed.pdf`;
           break;
         }
         case 'repair': {
           const buffer = await fileToArrayBuffer(files[0]);
-          outputBytes = await repairPdf(buffer);
+          try {
+            const { repairPdfLossless } = await import('@/lib/pdf-qpdf');
+            outputBytes = await repairPdfLossless(buffer);
+          } catch {
+            outputBytes = await repairPdf(buffer);
+          }
           newName = `${files[0].name.replace('.pdf', '')}_repaired.pdf`;
           break;
         }
@@ -1092,12 +1239,19 @@ export default function PdfWorkspace({ toolId, toolName, onBack, onSwitchTool, i
             } else if (toolId === 'pdf-to-jpg') {
               resultBlob = await pdfToZipOfJpgs(buffer);
               resultFile = `${files[0].name.replace('.pdf', '')}_images.zip`;
+            } else if (toolId === 'ocr') {
+              // Real OCR with Tesseract.js: returns a searchable PDF (scanned
+              // page image + invisible selectable text layer).
+              const ocrResult = await ocrPdf(buffer, { onProgress: setOcrProgress });
+              resultBlob = new Blob([new Uint8Array(ocrResult.bytes)], { type: 'application/pdf' });
+              resultFile = `${files[0].name.replace('.pdf', '')}_ocr_searchable.pdf`;
             } else {
               const text = await extractTextFromPdf(buffer);
               resultBlob = new Blob([`OCR Result: ${files[0].name}\n${'='.repeat(40)}\n\n${text}\n\n---\nText extracted client-side via pdf.js`], { type: 'text/plain' });
               resultFile = `${files[0].name.replace('.pdf', '')}_ocr.txt`;
             }
           }
+          setOcrProgress(null);
           const url = URL.createObjectURL(resultBlob);
           setResultBlobUrl(url);
           setResultFileName(resultFile);
@@ -1170,10 +1324,46 @@ export default function PdfWorkspace({ toolId, toolName, onBack, onSwitchTool, i
           newName = `${files[0].name.replace('.pdf', '')}_annotated.pdf`;
           break;
         }
+        case 'edit-text': {
+          const edits = Object.values(textEdits);
+          if (edits.length === 0) {
+            throw new Error('Click on any text in the document and change it first.');
+          }
+          const buffer = await fileToArrayBuffer(files[0]);
+          outputBytes = await editPdfText(
+            buffer,
+            edits.map((e) => ({ ...e, color: editTextColor }))
+          );
+          newName = `${files[0].name.replace('.pdf', '')}_edited.pdf`;
+          break;
+        }
         case 'compare': {
+          // Visual diff first: renders both PDFs and highlights changed pixels.
+          const compareB1 = await fileToArrayBuffer(files[0]);
+          const compareB2 = files[1] ? await fileToArrayBuffer(files[1]) : null;
+          if (compareB2) {
+            try {
+              const visual = await comparePdfsVisual(compareB1, compareB2);
+              const vUrl = URL.createObjectURL(new Blob([new Uint8Array(visual.bytes)], { type: 'application/pdf' }));
+              setResultBlobUrl(vUrl);
+              setResultFileName('pdf_comparison_report.pdf');
+              setIsSuccess(true);
+              setIsProcessing(false);
+              const vLink = document.createElement('a');
+              vLink.href = vUrl;
+              vLink.setAttribute('download', 'pdf_comparison_report.pdf');
+              document.body.appendChild(vLink);
+              vLink.click();
+              document.body.removeChild(vLink);
+              confetti({ particleCount: 80, spread: 60 });
+              return;
+            } catch {
+              // fall back to the structural text report below
+            }
+          }
           const { PDFDocument } = await import('pdf-lib');
-          const doc1 = await PDFDocument.load(await fileToArrayBuffer(files[0]));
-          const doc2 = files[1] ? await PDFDocument.load(await fileToArrayBuffer(files[1])) : null;
+          const doc1 = await PDFDocument.load(compareB1);
+          const doc2 = compareB2 ? await PDFDocument.load(compareB2) : null;
           
           const pages1 = doc1.getPageCount();
           const pages2 = doc2 ? doc2.getPageCount() : 0;
@@ -1502,6 +1692,260 @@ export default function PdfWorkspace({ toolId, toolName, onBack, onSwitchTool, i
           }
           return;
         }
+        case 'overlay': {
+          if (files.length < 2) {
+            throw new Error('Upload at least 2 PDFs — the first file is the base, the rest are overlaid on top of it.');
+          }
+          const baseBuffer = await fileToArrayBuffer(files[0]);
+          const overlayBuffers = await Promise.all(files.slice(1).map(fileToArrayBuffer));
+          outputBytes = await overlayPdfs(baseBuffer, overlayBuffers, overlayOpacity);
+          newName = 'overlaid_documents.pdf';
+          break;
+        }
+        case 'add-image': {
+          if (!imageToAdd) {
+            throw new Error('Please choose an image (JPG or PNG) to add to the PDF.');
+          }
+          const buffer = await fileToArrayBuffer(files[0]);
+          outputBytes = await addImageToPdf(buffer, imageToAdd, {
+            pageNumber: addImagePage,
+            x: addImageX,
+            y: addImageY,
+            width: addImageWidth,
+            opacity: addImageOpacity,
+          });
+          newName = `${files[0].name.replace('.pdf', '')}_with_image.pdf`;
+          break;
+        }
+        case 'remove-annotations': {
+          const buffer = await fileToArrayBuffer(files[0]);
+          outputBytes = await removeAnnotations(buffer);
+          newName = `${files[0].name.replace('.pdf', '')}_no_annotations.pdf`;
+          break;
+        }
+        case 'scale-pages': {
+          const buffer = await fileToArrayBuffer(files[0]);
+          outputBytes = await scalePages(buffer, scalePercent);
+          newName = `${files[0].name.replace('.pdf', '')}_scaled_${scalePercent}.pdf`;
+          break;
+        }
+        case 'booklet': {
+          const buffer = await fileToArrayBuffer(files[0]);
+          outputBytes = await bookletImposition(buffer);
+          newName = `${files[0].name.replace('.pdf', '')}_booklet.pdf`;
+          break;
+        }
+        case 'sanitize': {
+          const buffer = await fileToArrayBuffer(files[0]);
+          outputBytes = await deepSanitizePdf(buffer);
+          newName = `${files[0].name.replace('.pdf', '')}_sanitized.pdf`;
+          break;
+        }
+        case 'pdf-info': {
+          const buffer = await fileToArrayBuffer(files[0]);
+          const report = await inspectPdfDetails(buffer);
+          setPdfInfoResult(report);
+          const lines = [
+            'PDF INFO REPORT',
+            '='.repeat(42),
+            `File:         ${files[0].name}`,
+            `Pages:        ${report.pageCount}`,
+            `PDF Version:  ${report.pdfVersion}`,
+            `Page Size:    ${report.pageSize.widthPt} x ${report.pageSize.heightPt} pt (${report.pageSize.widthMm} x ${report.pageSize.heightMm} mm)`,
+            `Title:        ${report.title}`,
+            `Author:       ${report.author}`,
+            `Creator:      ${report.creator}`,
+            `Producer:     ${report.producer}`,
+            `Created:      ${report.creationDate}`,
+            `Modified:     ${report.modificationDate}`,
+            `Encrypted:    ${report.isEncrypted ? 'Yes' : 'No'}`,
+            `Form Fields:  ${report.formFieldCount}`,
+          ];
+          const blob = new Blob([lines.join('\n')], { type: 'text/plain' });
+          const url = URL.createObjectURL(blob);
+          setResultBlobUrl(url);
+          setResultFileName(`${files[0].name.replace('.pdf', '')}_info.txt`);
+          setIsSuccess(true);
+          setIsProcessing(false);
+          const tempLink = document.createElement('a');
+          tempLink.href = url;
+          tempLink.setAttribute('download', `${files[0].name.replace('.pdf', '')}_info.txt`);
+          document.body.appendChild(tempLink);
+          tempLink.click();
+          document.body.removeChild(tempLink);
+          confetti({ particleCount: 80, spread: 60 });
+          return;
+        }
+        case 'replace-colors': {
+          const buffer = await fileToArrayBuffer(files[0]);
+          outputBytes = await replaceColors(buffer, replaceFrom, replaceTo);
+          newName = `${files[0].name.replace('.pdf', '')}_recolored.pdf`;
+          break;
+        }
+        case 'auto-rename': {
+          const buffer = await fileToArrayBuffer(files[0]);
+          const text = await extractTextFromPdf(buffer);
+          const firstLine = text
+            .split('\n')
+            .map((l) => l.trim())
+            .find((l) => l.length > 0 && !l.startsWith('---')) || 'document';
+          const slug = slugifyFilename(firstLine, 60);
+          outputBytes = await setPdfTitle(buffer, firstLine.slice(0, 200));
+          newName = `${slug}.pdf`;
+          break;
+        }
+        case 'show-javascript': {
+          const buffer = await fileToArrayBuffer(files[0]);
+          const scripts = await extractJavascriptFromPdf(buffer);
+          setJsResult(scripts);
+          const summary = scripts.length === 0
+            ? 'No embedded JavaScript found in this PDF.'
+            : scripts.map((s, i) => `// ${i + 1}. ${s.name}\n${s.source}`).join('\n\n');
+          const blob = new Blob([summary], { type: 'text/plain' });
+          const url = URL.createObjectURL(blob);
+          setResultBlobUrl(url);
+          setResultFileName(`${files[0].name.replace('.pdf', '')}_javascript.txt`);
+          setIsSuccess(true);
+          setIsProcessing(false);
+          const tempLink = document.createElement('a');
+          tempLink.href = url;
+          tempLink.setAttribute('download', `${files[0].name.replace('.pdf', '')}_javascript.txt`);
+          document.body.appendChild(tempLink);
+          tempLink.click();
+          document.body.removeChild(tempLink);
+          confetti({ particleCount: 80, spread: 60 });
+          return;
+        }
+        case 'extract-images': {
+          const buffer = await fileToArrayBuffer(files[0]);
+          const zipBlob = await extractImagesToZip(buffer);
+          const url = URL.createObjectURL(zipBlob);
+          setResultBlobUrl(url);
+          setResultFileName(`${files[0].name.replace('.pdf', '')}_images.zip`);
+          setIsSuccess(true);
+          setIsProcessing(false);
+          const tempLink = document.createElement('a');
+          tempLink.href = url;
+          tempLink.setAttribute('download', `${files[0].name.replace('.pdf', '')}_images.zip`);
+          document.body.appendChild(tempLink);
+          tempLink.click();
+          document.body.removeChild(tempLink);
+          confetti({ particleCount: 80, spread: 60 });
+          return;
+        }
+        case 'pdf-to-csv': {
+          const buffer = await fileToArrayBuffer(files[0]);
+          const csv = await pdfToCsv(buffer);
+          const blob = new Blob([csv], { type: 'text/csv' });
+          const url = URL.createObjectURL(blob);
+          setResultBlobUrl(url);
+          setResultFileName(`${files[0].name.replace('.pdf', '')}.csv`);
+          setIsSuccess(true);
+          setIsProcessing(false);
+          const tempLink = document.createElement('a');
+          tempLink.href = url;
+          tempLink.setAttribute('download', `${files[0].name.replace('.pdf', '')}.csv`);
+          document.body.appendChild(tempLink);
+          tempLink.click();
+          document.body.removeChild(tempLink);
+          confetti({ particleCount: 80, spread: 60 });
+          return;
+        }
+        case 'scanner-effect': {
+          const buffer = await fileToArrayBuffer(files[0]);
+          outputBytes = await scannerEffectPdf(buffer, {
+            angle: scannerAngle,
+            noise: scannerNoise,
+            grayscale: scannerGrayscale,
+          });
+          newName = `${files[0].name.replace('.pdf', '')}_scanned.pdf`;
+          break;
+        }
+        case 'certificate-sign': {
+          if (!p12File) {
+            throw new Error('Please choose a .p12 certificate file first.');
+          }
+          if (!p12Password) {
+            throw new Error('Please enter the certificate password.');
+          }
+          const buffer = await fileToArrayBuffer(files[0]);
+          const p12 = await fileToArrayBuffer(p12File);
+          const signed = await certificateSignPdf(buffer, p12, p12Password);
+          setCertSignName(signed.certName);
+          outputBytes = signed.bytes;
+          newName = `${files[0].name.replace('.pdf', '')}_signed.pdf`;
+          break;
+        }
+        case 'validate-signature': {
+          const buffer = await fileToArrayBuffer(files[0]);
+          const result = await validateSignaturePdf(buffer);
+          setSigResult(result.signatures);
+          setSigError(result.error ?? null);
+          const lines = result.error
+            ? [result.error]
+            : result.signatures.map((s, i) => [
+                `SIGNATURE ${i + 1}`,
+                `Signer:      ${s.name || '(unknown)'}`,
+                `Signed at:   ${s.signingTime || '(not set)'}`,
+                `Filter:      ${s.filter || 'n/a'}`,
+                `SubFilter:   ${s.subFilter || 'n/a'}`,
+                `ByteRange:   [${s.byteRange.join(', ')}]`,
+                `Cryptographic status: ${s.valid ? 'VALID' : 'INVALID / UNVERIFIED'}`,
+                `Certificate: ${s.certSubject || 'n/a'}`,
+                `Issuer:      ${s.certIssuer || 'n/a'}`,
+                `Valid from:  ${s.certValidFrom}`,
+                `Valid to:    ${s.certValidTo}`,
+              ].join('\n'));
+          const blob = new Blob([lines.join('\n\n')], { type: 'text/plain' });
+          const url = URL.createObjectURL(blob);
+          setResultBlobUrl(url);
+          setResultFileName(`${files[0].name.replace('.pdf', '')}_signature_report.txt`);
+          setIsSuccess(true);
+          setIsProcessing(false);
+          const tempLink = document.createElement('a');
+          tempLink.href = url;
+          tempLink.setAttribute('download', `${files[0].name.replace('.pdf', '')}_signature_report.txt`);
+          document.body.appendChild(tempLink);
+          tempLink.click();
+          document.body.removeChild(tempLink);
+          confetti({ particleCount: 80, spread: 60 });
+          return;
+        }
+        case 'md-to-pdf': {
+          if (!mdContent.trim()) {
+            throw new Error('Please enter some Markdown content first.');
+          }
+          outputBytes = await markdownToPdf(mdContent, { pageSize: 'a4' });
+          newName = 'markdown_document.pdf';
+          break;
+        }
+        case 'pdf-to-xml': {
+          const buffer = await fileToArrayBuffer(files[0]);
+          const xml = await pdfToXml(buffer);
+          const blob = new Blob([xml], { type: 'application/xml' });
+          const url = URL.createObjectURL(blob);
+          setResultBlobUrl(url);
+          setResultFileName(`${files[0].name.replace('.pdf', '')}.xml`);
+          setIsSuccess(true);
+          setIsProcessing(false);
+          const tempLink = document.createElement('a');
+          tempLink.href = url;
+          tempLink.setAttribute('download', `${files[0].name.replace('.pdf', '')}.xml`);
+          document.body.appendChild(tempLink);
+          tempLink.click();
+          document.body.removeChild(tempLink);
+          confetti({ particleCount: 80, spread: 60 });
+          return;
+        }
+        case 'find-replace-text': {
+          if (!findText.trim()) {
+            throw new Error('Please enter the text to find.');
+          }
+          const buffer = await fileToArrayBuffer(files[0]);
+          outputBytes = await findReplaceTextPdf(buffer, findText, replaceText, findCaseSensitive);
+          newName = `${files[0].name.replace('.pdf', '')}_edited.pdf`;
+          break;
+        }
         default:
           throw new Error('Unknown tool.');
       }
@@ -1543,6 +1987,9 @@ export default function PdfWorkspace({ toolId, toolName, onBack, onSwitchTool, i
     setVisualAnnotations([]);
     setEditPageNum(1);
     setPageItems([]);
+    setTextEdits({});
+    setTextOverlayItems([]);
+    setEditTextPage(1);
   };
 
   const handlePipelineContinue = async (targetId: string, targetName: string) => {
@@ -1737,6 +2184,24 @@ export default function PdfWorkspace({ toolId, toolName, onBack, onSwitchTool, i
                   />
                 </div>
               </div>
+            ) : toolId === 'md-to-pdf' ? (
+              <div className="flex-1 flex gap-6 overflow-hidden min-h-[400px]">
+                {/* Markdown Input Editor */}
+                <div className="flex-1 flex flex-col bg-slate-900 border border-slate-800 rounded-2xl shadow-lg p-5">
+                  <h3 className="text-sm font-bold text-slate-200 mb-3">Markdown Source</h3>
+                  <textarea
+                    value={mdContent}
+                    onChange={e => setMdContent(e.target.value)}
+                    className="flex-1 resize-none bg-slate-950 p-4 rounded-xl border border-slate-800 text-xs text-slate-300 font-mono leading-relaxed focus:outline-none focus:border-red-500/50"
+                  />
+                </div>
+                {/* Live rendered preview */}
+                <div className="flex-1 flex flex-col bg-white border border-slate-200 rounded-2xl shadow p-5 overflow-y-auto">
+                  <h3 className="text-sm font-bold text-slate-400 mb-3 uppercase tracking-wider">Preview</h3>
+                  <div className="text-xs text-slate-400">Heading, lists, quotes, code, bold, italic, and links are rendered on process.</div>
+                  <pre className="mt-4 text-[11px] font-mono text-slate-500 whitespace-pre-wrap">{mdContent.slice(0, 800)}</pre>
+                </div>
+              </div>
             ) : toolId === 'txt-to-pdf' ? (
               <div className="flex-1 flex bg-white border border-slate-200 rounded-2xl p-6 shadow-md">
                 <div className="flex-1 flex flex-col">
@@ -1779,7 +2244,7 @@ export default function PdfWorkspace({ toolId, toolName, onBack, onSwitchTool, i
                   <span>Select Files</span>
                   <input
                     type="file"
-                    multiple={toolId === 'merge' || toolId === 'jpg-to-pdf' || toolId === 'compare'}
+                    multiple={toolId === 'merge' || toolId === 'jpg-to-pdf' || toolId === 'compare' || toolId === 'overlay'}
                     accept={toolId === 'jpg-to-pdf' ? '.jpg,.jpeg,.png' : 
                             toolId === 'word-to-pdf' ? '.doc,.docx' :
                             toolId === 'excel-to-pdf' ? '.xls,.xlsx,.csv' :
@@ -1950,6 +2415,87 @@ export default function PdfWorkspace({ toolId, toolName, onBack, onSwitchTool, i
                       </div>
                     )}
                   </div>
+                ) : toolId === 'edit-text' && files.length === 1 ? (
+                  <div className="space-y-4">
+                    {/* In-place Text Editor Toolbar */}
+                    <div className="bg-white border border-slate-200 rounded-2xl p-3 shadow-sm flex flex-wrap items-center justify-between gap-3">
+                      <div className="flex items-center gap-2">
+                        <Type className="w-4 h-4 text-red-600" />
+                        <span className="text-xs font-bold text-slate-700">In-place Text Editor</span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <button
+                          onClick={resetTextEdits}
+                          disabled={Object.keys(textEdits).length === 0}
+                          className="text-xs font-semibold px-3 py-1.5 rounded-xl border border-slate-200 hover:bg-red-50 hover:text-red-600 text-slate-500 transition-all disabled:opacity-30 disabled:hover:bg-white disabled:hover:text-slate-500"
+                        >
+                          Reset Edits ({Object.keys(textEdits).length})
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Page Navigation and Hint */}
+                    <div className="flex items-center justify-between px-1">
+                      <p className="text-xs text-slate-500">
+                        ✏️ Click any text on the page and type your replacement — the original text is covered and redrawn in place.
+                      </p>
+                      <div className="flex items-center gap-2 shrink-0 ml-4">
+                        <button
+                          onClick={() => setEditTextPage((p) => Math.max(1, p - 1))}
+                          disabled={editTextPage <= 1}
+                          className="p-1.5 rounded-lg border border-slate-200 hover:bg-slate-100 disabled:opacity-30"
+                        >
+                          ←
+                        </button>
+                        <span className="text-xs font-bold text-slate-600 whitespace-nowrap">
+                          Page {editTextPage} / {totalPageCount || 1}
+                        </span>
+                        <button
+                          onClick={() => setEditTextPage((p) => Math.min(totalPageCount || p, p + 1))}
+                          disabled={editTextPage >= (totalPageCount || 1)}
+                          className="p-1.5 rounded-lg border border-slate-200 hover:bg-slate-100 disabled:opacity-30"
+                        >
+                          →
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Page Canvas + Editable Text Overlays */}
+                    <div className="flex justify-center bg-slate-100/80 border border-slate-200 rounded-2xl p-6 min-h-[300px] items-center overflow-auto shadow-inner">
+                      <div className="relative inline-block">
+                        <div ref={editTextCanvasHostRef} className="inline-block" />
+                        {textOverlayItems.map((item, idx) => {
+                          const key = `${editTextPage}-${idx}`;
+                          const isEdited = key in textEdits;
+                          return (
+                            <input
+                              key={key}
+                              value={textEdits[key]?.newText ?? item.str}
+                              onChange={(e) => handleTextEditChange(key, item, e.target.value)}
+                              title={`Edit: "${item.str}"`}
+                              className={`absolute p-0 rounded-sm overflow-hidden outline-none cursor-text transition-colors ${
+                                isEdited
+                                  ? 'bg-amber-100/70 border border-amber-400 shadow-sm'
+                                  : 'bg-transparent border border-transparent hover:bg-sky-100/40 hover:border-sky-300'
+                              } focus:bg-white focus:border-red-500 focus:ring-2 focus:ring-red-200`}
+                              style={{
+                                left: item.cssLeft,
+                                top: item.cssTop,
+                                width: item.cssWidth,
+                                height: item.cssHeight,
+                                fontSize: item.fontSize,
+                                lineHeight: `${item.cssHeight}px`,
+                              }}
+                            />
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    {errorMsg && (
+                      <p className="text-xs font-semibold text-red-600 bg-red-50 px-3 py-1.5 rounded-lg border border-red-100">{errorMsg}</p>
+                    )}
+                  </div>
                 ) : toolId === 'organize' && files.length === 1 ? (
                   <div className="space-y-4">
                     {/* KillerPDF Organize Batch Actions Bar */}
@@ -2080,7 +2626,7 @@ export default function PdfWorkspace({ toolId, toolName, onBack, onSwitchTool, i
                     ))}
 
                     {/* Quick Append selectors */}
-                    {(toolId === 'merge' || toolId === 'jpg-to-pdf') && (
+                    {(toolId === 'merge' || toolId === 'jpg-to-pdf' || toolId === 'overlay') && (
                       <label className="border border-dashed border-slate-300 hover:border-red-500 rounded-xl p-4 flex flex-col items-center justify-center cursor-pointer text-slate-500 hover:text-red-600 bg-white/50 transition-colors h-full">
                         <Plus className="w-6 h-6" />
                         <span className="text-xs font-semibold mt-1">Add files</span>
@@ -2100,7 +2646,7 @@ export default function PdfWorkspace({ toolId, toolName, onBack, onSwitchTool, i
           </main>
 
           {/* Right Sidebar Options panel */}
-          {(files.length > 0 || toolId === 'scan' || toolId === 'html-to-pdf' || toolId === 'txt-to-pdf') && (
+          {(files.length > 0 || toolId === 'scan' || toolId === 'html-to-pdf' || toolId === 'txt-to-pdf' || toolId === 'md-to-pdf') && (
             <aside className="w-80 border-l border-slate-200 bg-white flex flex-col shadow-2xl overflow-y-auto animate-slide-in-right">
               <div className="p-5 border-b border-slate-200 bg-slate-50/50 shrink-0">
                 <h3 className="font-bold text-slate-900 text-sm">Tool Configurations</h3>
@@ -2828,7 +3374,7 @@ export default function PdfWorkspace({ toolId, toolName, onBack, onSwitchTool, i
                   <div className="space-y-4">
                     <div className="text-xs text-slate-500 bg-red-50/40 p-4 border border-red-100 rounded-xl">
                       <p className="font-bold text-slate-800">Compare PDFs:</p>
-                      <p className="mt-1">Upload exactly 2 PDF documents to run structural comparisons side-by-side.</p>
+                      <p className="mt-1">Upload exactly 2 PDF documents. Docify renders both and downloads a report with side-by-side pages and red-highlighted pixel differences.</p>
                     </div>
                   </div>
                 )}
@@ -2893,10 +3439,24 @@ export default function PdfWorkspace({ toolId, toolName, onBack, onSwitchTool, i
 
                 {/* 15. OCR PDF options */}
                 {toolId === 'ocr' && (
-                  <div className="space-y-3 bg-red-50/40 p-4 border border-red-100 rounded-xl text-xs text-slate-500">
-                    <p className="font-bold text-slate-800">OCR Scanner Info:</p>
-                    <p>• Extract structural text nodes from scanned pages natively.</p>
-                    <p>• Converts unsearchable pixels into standard editable strings.</p>
+                  <div className="space-y-4">
+                    <div className="space-y-3 bg-red-50/40 p-4 border border-red-100 rounded-xl text-xs text-slate-500">
+                      <p className="font-bold text-slate-800">OCR Scanner Info:</p>
+                      <p>• Recognizes text with the Tesseract.js OCR engine (English).</p>
+                      <p>• Downloads a searchable PDF with a selectable text layer.</p>
+                      <p>• First run fetches the OCR language data from the jsdelivr CDN.</p>
+                    </div>
+                    {ocrProgress !== null && (
+                      <div>
+                        <div className="flex justify-between text-[10px] font-bold text-slate-500 mb-1">
+                          <span>Recognizing pages…</span>
+                          <span>{Math.round(ocrProgress)}%</span>
+                        </div>
+                        <div className="h-1.5 bg-slate-200 rounded-full overflow-hidden">
+                          <div className="h-full bg-red-600 rounded-full transition-all" style={{ width: `${Math.min(100, ocrProgress)}%` }} />
+                        </div>
+                      </div>
+                    )}
                   </div>
                 )}
 
@@ -3115,6 +3675,401 @@ export default function PdfWorkspace({ toolId, toolName, onBack, onSwitchTool, i
                       <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block mb-1">Keywords</label>
                       <input type="text" value={metaKeywords} onChange={e => setMetaKeywords(e.target.value)} placeholder="keyword1, keyword2" className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-xs focus:outline-none focus:border-red-500" />
                     </div>
+                  </div>
+                )}
+
+                {/* 28. Overlay PDF options */}
+                {toolId === 'overlay' && (
+                  <div className="space-y-4">
+                    <div className="text-xs text-slate-500 bg-red-50/40 p-4 border border-red-100 rounded-xl space-y-2">
+                      <p className="font-bold text-slate-800">Overlay Engine:</p>
+                      <p>• The <strong>first</strong> uploaded PDF is the base document.</p>
+                      <p>• Every additional PDF is layered on top of each base page, scaled to fit.</p>
+                      <p>• Upload at least 2 files to run an overlay.</p>
+                    </div>
+                    <div>
+                      <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block mb-1">Overlay Opacity ({Math.round(overlayOpacity * 100)}%)</label>
+                      <input
+                        type="range"
+                        min={0.1}
+                        max={1}
+                        step={0.05}
+                        value={overlayOpacity}
+                        onChange={e => setOverlayOpacity(parseFloat(e.target.value) || 0.8)}
+                        className="w-full h-1 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-red-600"
+                      />
+                    </div>
+                  </div>
+                )}
+
+                {/* 29. Add Image to PDF options */}
+                {toolId === 'add-image' && (
+                  <div className="space-y-4">
+                    <div>
+                      <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block mb-1.5">Image to Insert</label>
+                      <label className="flex items-center justify-center gap-2 border border-dashed border-slate-300 hover:border-red-500 rounded-xl p-3 text-xs font-semibold text-slate-500 hover:text-red-600 bg-white/50 cursor-pointer transition-colors">
+                        {imageToAdd ? 'Replace Image' : 'Choose JPG / PNG'}
+                        <input
+                          type="file"
+                          accept=".jpg,.jpeg,.png"
+                          className="hidden"
+                          onChange={async (e) => {
+                            const f = e.target.files?.[0];
+                            if (!f) return;
+                            try {
+                              const dataUrl = await fileToDataUrl(f);
+                              setImageToAdd(dataUrl);
+                              setErrorMsg(null);
+                            } catch {
+                              setErrorMsg('Could not read the selected image.');
+                            }
+                          }}
+                        />
+                      </label>
+                      {imageToAdd && (
+                        <div className="mt-2 flex items-center gap-2">
+                          <img src={imageToAdd} alt="Selected image" className="w-14 h-14 object-cover rounded-lg border border-slate-200" />
+                          <span className="text-[10px] text-slate-400">Image ready to insert on the selected page.</span>
+                        </div>
+                      )}
+                    </div>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block mb-1">Target Page</label>
+                        <input type="number" min={1} value={addImagePage} onChange={e => setAddImagePage(parseInt(e.target.value) || 1)} className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-xs focus:outline-none focus:border-red-500" />
+                      </div>
+                      <div>
+                        <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block mb-1">Width (pt)</label>
+                        <input type="number" min={10} value={addImageWidth} onChange={e => setAddImageWidth(parseInt(e.target.value) || 200)} className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-xs focus:outline-none focus:border-red-500" />
+                      </div>
+                      <div>
+                        <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block mb-1">X Offset (Left)</label>
+                        <input type="number" min={0} value={addImageX} onChange={e => setAddImageX(parseInt(e.target.value) || 0)} className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-xs focus:outline-none focus:border-red-500" />
+                      </div>
+                      <div>
+                        <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block mb-1">Y Offset (Bottom)</label>
+                        <input type="number" min={0} value={addImageY} onChange={e => setAddImageY(parseInt(e.target.value) || 0)} className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-xs focus:outline-none focus:border-red-500" />
+                      </div>
+                    </div>
+                    <div>
+                      <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block mb-1">Opacity ({Math.round(addImageOpacity * 100)}%)</label>
+                      <input
+                        type="range"
+                        min={0.1}
+                        max={1}
+                        step={0.05}
+                        value={addImageOpacity}
+                        onChange={e => setAddImageOpacity(parseFloat(e.target.value) || 1)}
+                        className="w-full h-1 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-red-600"
+                      />
+                    </div>
+                  </div>
+                )}
+
+                {/* 30. Remove Annotations options */}
+                {toolId === 'remove-annotations' && (
+                  <div className="space-y-3 bg-red-50/40 p-4 border border-red-100 rounded-xl text-xs text-slate-500">
+                    <p className="font-bold text-slate-800">Remove Annotations:</p>
+                    <p>• Strips all comments, highlights, sticky notes, and link annotations.</p>
+                    <p>• Also removes form widget annotations from every page.</p>
+                  </div>
+                )}
+
+                {/* 31. Scale Pages options */}
+                {toolId === 'scale-pages' && (
+                  <div className="space-y-4">
+                    <div>
+                      <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block mb-1.5">Scale ({scalePercent}%)</label>
+                      <div className="flex gap-2">
+                        {[50, 75, 90, 125].map(p => (
+                          <button
+                            key={p}
+                            onClick={() => setScalePercent(p)}
+                            className={`flex-1 py-2 border text-xs font-bold rounded-lg transition-all ${
+                              scalePercent === p
+                                ? 'bg-red-50 border-red-500 text-red-600'
+                                : 'bg-slate-50 border-slate-200 text-slate-600 hover:border-slate-300'
+                            }`}
+                          >
+                            {p}%
+                          </button>
+                        ))}
+                      </div>
+                      <p className="text-[9px] text-slate-400 mt-1.5">Content and page size are both rescaled proportionally.</p>
+                    </div>
+                  </div>
+                )}
+
+                {/* 32. Booklet Imposition options */}
+                {toolId === 'booklet' && (
+                  <div className="space-y-3 bg-red-50/40 p-4 border border-red-100 rounded-xl text-xs text-slate-500">
+                    <p className="font-bold text-slate-800">Booklet Imposition:</p>
+                    <p>• Reorders pages into 2-up sheets for duplex booklet printing.</p>
+                    <p>• Pads to a multiple of 4 pages with blank sheets automatically.</p>
+                    <p>• Fold the printed sheets in half to read in page order.</p>
+                  </div>
+                )}
+
+                {/* 33. Sanitize PDF options */}
+                {toolId === 'sanitize' && (
+                  <div className="space-y-3 bg-red-50/40 p-4 border border-red-100 rounded-xl text-xs text-slate-500">
+                    <p className="font-bold text-slate-800">Deep Sanitizer:</p>
+                    <p>• Wipes title, author, subject, keywords, and dates from the document.</p>
+                    <p>• Resets producer/creator fields to generic values before download.</p>
+                  </div>
+                )}
+
+                {/* 34. PDF Info options */}
+                {toolId === 'pdf-info' && (
+                  <div className="space-y-4">
+                    <div className="text-xs text-slate-500 bg-red-50/40 p-4 border border-red-100 rounded-xl space-y-2">
+                      <p className="font-bold text-slate-800">PDF Inspector:</p>
+                      <p>• Reads page count, page size, metadata, and form field count.</p>
+                      <p>• Downloads a text report after inspection.</p>
+                    </div>
+                    {pdfInfoResult && (
+                      <div className="rounded-xl bg-slate-50 border border-slate-200 p-4 text-[11px] font-mono text-slate-600 space-y-1.5">
+                        <p><strong className="text-slate-800">Pages:</strong> {pdfInfoResult.pageCount}</p>
+                        <p><strong className="text-slate-800">Size:</strong> {pdfInfoResult.pageSize.widthPt} × {pdfInfoResult.pageSize.heightPt} pt</p>
+                        <p><strong className="text-slate-800">Title:</strong> {pdfInfoResult.title}</p>
+                        <p><strong className="text-slate-800">Author:</strong> {pdfInfoResult.author}</p>
+                        <p><strong className="text-slate-800">Creator:</strong> {pdfInfoResult.creator}</p>
+                        <p><strong className="text-slate-800">Producer:</strong> {pdfInfoResult.producer}</p>
+                        <p><strong className="text-slate-800">Created:</strong> {pdfInfoResult.creationDate}</p>
+                        <p><strong className="text-slate-800">Modified:</strong> {pdfInfoResult.modificationDate}</p>
+                        <p><strong className="text-slate-800">Form Fields:</strong> {pdfInfoResult.formFieldCount}</p>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* 35. Replace Colors options */}
+                {toolId === 'replace-colors' && (
+                  <div className="space-y-4">
+                    <div className="text-xs text-slate-500 bg-red-50/40 p-4 border border-red-100 rounded-xl space-y-2">
+                      <p className="font-bold text-slate-800">Replace Colors:</p>
+                      <p>• Every fill or stroke matching the source color is swapped for the target color.</p>
+                      <p>• Applies to RGB and grayscale operators inside the content streams.</p>
+                    </div>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block mb-1">From Color</label>
+                        <input type="color" value={replaceFrom} onChange={e => setReplaceFrom(e.target.value)} className="w-full h-9 bg-slate-50 border border-slate-200 rounded-lg p-0.5 cursor-pointer" />
+                      </div>
+                      <div>
+                        <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block mb-1">To Color</label>
+                        <input type="color" value={replaceTo} onChange={e => setReplaceTo(e.target.value)} className="w-full h-9 bg-slate-50 border border-slate-200 rounded-lg p-0.5 cursor-pointer" />
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* 36. Auto Rename options */}
+                {toolId === 'auto-rename' && (
+                  <div className="space-y-3 bg-red-50/40 p-4 border border-red-100 rounded-xl text-xs text-slate-500">
+                    <p className="font-bold text-slate-800">Auto Rename:</p>
+                    <p>• Reads the first line of text in the document and names the file after it.</p>
+                    <p>• Also writes the detected title into the PDF metadata.</p>
+                  </div>
+                )}
+
+                {/* 37. Show JavaScript options */}
+                {toolId === 'show-javascript' && (
+                  <div className="space-y-4">
+                    <div className="text-xs text-slate-500 bg-red-50/40 p-4 border border-red-100 rounded-xl space-y-2">
+                      <p className="font-bold text-slate-800">Show JavaScript:</p>
+                      <p>• Scans the document catalog, page actions, and name tree for embedded scripts.</p>
+                      <p>• Downloads a readable .txt summary of everything found.</p>
+                    </div>
+                    {jsResult && jsResult.length === 0 && (
+                      <p className="text-[11px] text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-xl p-3 font-semibold">
+                        ✓ No embedded JavaScript found in this PDF.
+                      </p>
+                    )}
+                    {jsResult && jsResult.length > 0 && (
+                      <div className="space-y-2">
+                        {jsResult.map((s, i) => (
+                          <div key={i} className="rounded-xl bg-slate-50 border border-slate-200 p-3">
+                            <p className="text-[10px] font-bold text-slate-600 uppercase tracking-wider mb-1">{s.name}</p>
+                            <pre className="text-[10px] font-mono text-slate-500 whitespace-pre-wrap break-words leading-relaxed max-h-28 overflow-y-auto">{s.source}</pre>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* 38. Extract Images options */}
+                {toolId === 'extract-images' && (
+                  <div className="space-y-3 bg-red-50/40 p-4 border border-red-100 rounded-xl text-xs text-slate-500">
+                    <p className="font-bold text-slate-800">Extract Images:</p>
+                    <p>• Pulls every embedded image out of the PDF into a downloadable ZIP.</p>
+                    <p>• JPEGs pass through untouched; simple PNG/CMYK/grayscale images are rebuilt.</p>
+                  </div>
+                )}
+
+                {/* 39. PDF to CSV options */}
+                {toolId === 'pdf-to-csv' && (
+                  <div className="space-y-3 bg-red-50/40 p-4 border border-red-100 rounded-xl text-xs text-slate-500">
+                    <p className="font-bold text-slate-800">PDF to CSV:</p>
+                    <p>• Reconstructs a line-based CSV from positioned text using pdf.js.</p>
+                    <p>• Items on the same line become cells; rows keep top-to-bottom order.</p>
+                  </div>
+                )}
+
+                {/* 40. Scanner Effect options */}
+                {toolId === 'scanner-effect' && (
+                  <div className="space-y-4">
+                    <div className="text-xs text-slate-500 bg-red-50/40 p-4 border border-red-100 rounded-xl space-y-2">
+                      <p className="font-bold text-slate-800">Scanner Effect:</p>
+                      <p>• Rasterizes each page and applies a photocopier look.</p>
+                      <p>• Runs fully in your browser — no uploads.</p>
+                    </div>
+                    <div>
+                      <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block mb-1">Skew Angle ({scannerAngle}°)</label>
+                      <input type="range" min={0} max={3} step={0.25} value={scannerAngle} onChange={e => setScannerAngle(parseFloat(e.target.value) || 0)} className="w-full h-1 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-red-600" />
+                    </div>
+                    <div>
+                      <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block mb-1">Noise ({scannerNoise})</label>
+                      <input type="range" min={0} max={30} step={1} value={scannerNoise} onChange={e => setScannerNoise(parseInt(e.target.value) || 0)} className="w-full h-1 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-red-600" />
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <input type="checkbox" id="scanGray" checked={scannerGrayscale} onChange={e => setScannerGrayscale(e.target.checked)} className="rounded border-slate-300 text-red-600 focus:ring-red-500" />
+                      <label htmlFor="scanGray" className="text-xs font-semibold text-slate-600">Grayscale</label>
+                    </div>
+                  </div>
+                )}
+
+                {/* 41. Certificate Sign options */}
+                {toolId === 'certificate-sign' && (
+                  <div className="space-y-4">
+                    <div className="text-xs text-slate-500 bg-red-50/40 p-4 border border-red-100 rounded-xl space-y-2">
+                      <p className="font-bold text-slate-800">Certificate Sign:</p>
+                      <p>• Embeds a real, verifiable digital signature (Adobe/ETSI compatible).</p>
+                      <p>• Requires a personal PKCS#12 (.p12) certificate and its password.</p>
+                      <p>• All signing happens in your browser — the certificate never leaves it.</p>
+                    </div>
+                    <div>
+                      <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block mb-1.5">Certificate (.p12 / .pfx)</label>
+                      <label className="flex items-center justify-center gap-2 border border-dashed border-slate-300 hover:border-red-500 rounded-xl p-3 text-xs font-semibold text-slate-500 hover:text-red-600 bg-white/50 cursor-pointer transition-colors">
+                        {p12File ? p12File.name : 'Choose certificate file'}
+                        <input
+                          type="file"
+                          accept=".p12,.pfx"
+                          className="hidden"
+                          onChange={(e) => {
+                            const f = e.target.files?.[0];
+                            if (f) {
+                              setP12File(f);
+                              setErrorMsg(null);
+                            }
+                          }}
+                        />
+                      </label>
+                    </div>
+                    <div>
+                      <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block mb-1">Certificate Password</label>
+                      <input type="password" placeholder="••••••••" value={p12Password} onChange={e => setP12Password(e.target.value)} className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-xs focus:outline-none focus:border-red-500" />
+                    </div>
+                    {certSignName && (
+                      <p className="text-[11px] font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-xl p-3">
+                        ✓ Signed as: {certSignName}
+                      </p>
+                    )}
+                  </div>
+                )}
+
+                {/* 42. Validate Signature options */}
+                {toolId === 'validate-signature' && (
+                  <div className="space-y-4">
+                    <div className="text-xs text-slate-500 bg-red-50/40 p-4 border border-red-100 rounded-xl space-y-2">
+                      <p className="font-bold text-slate-800">Validate Signature:</p>
+                      <p>• Locates digital signatures, reads signer and certificate details.</p>
+                      <p>• Cryptographically verifies the byte-range signature with node-forge.</p>
+                    </div>
+                    {sigError && (
+                      <p className="text-[11px] font-semibold text-amber-700 bg-amber-50 border border-amber-200 rounded-xl p-3">{sigError}</p>
+                    )}
+                    {sigResult && sigResult.map((s, i) => (
+                      <div key={i} className="rounded-xl bg-slate-50 border border-slate-200 p-4 text-[11px] font-mono text-slate-600 space-y-1.5">
+                        <p className={`font-bold text-sm ${s.valid ? 'text-emerald-700' : 'text-red-700'}`}>
+                          {s.valid ? '✓ VALID SIGNATURE' : '✗ INVALID / UNVERIFIED'}
+                        </p>
+                        <p><strong className="text-slate-800">Signer:</strong> {s.name || '(unknown)'}</p>
+                        <p><strong className="text-slate-800">Signed:</strong> {s.signingTime || '(not set)'}</p>
+                        <p><strong className="text-slate-800">Filter:</strong> {s.filter || 'n/a'} · <strong className="text-slate-800">SubFilter:</strong> {s.subFilter || 'n/a'}</p>
+                        <p><strong className="text-slate-800">Certificate:</strong> {s.certSubject || 'n/a'}</p>
+                        <p><strong className="text-slate-800">Issuer:</strong> {s.certIssuer || 'n/a'}</p>
+                        <p><strong className="text-slate-800">Validity:</strong> {s.certValidFrom} → {s.certValidTo}</p>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {/* 43. Find & Replace Text options */}
+                {toolId === 'find-replace-text' && (
+                  <div className="space-y-4">
+                    <div className="text-xs text-slate-500 bg-red-50/40 p-4 border border-red-100 rounded-xl">
+                      <p className="font-bold text-slate-800">Find & Replace:</p>
+                      <p className="mt-1">Matches exact words (whole word) across all pages, masks them white, and draws the replacement text.</p>
+                    </div>
+                    <div>
+                      <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block mb-1">Find</label>
+                      <input type="text" value={findText} onChange={e => setFindText(e.target.value)} placeholder="e.g. oldname" className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-xs focus:outline-none focus:border-red-500" />
+                    </div>
+                    <div>
+                      <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block mb-1">Replace with</label>
+                      <input type="text" value={replaceText} onChange={e => setReplaceText(e.target.value)} placeholder="e.g. newname" className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-xs focus:outline-none focus:border-red-500" />
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <input type="checkbox" id="findCase" checked={findCaseSensitive} onChange={e => setFindCaseSensitive(e.target.checked)} className="rounded border-slate-300 text-red-600 focus:ring-red-500" />
+                      <label htmlFor="findCase" className="text-xs font-semibold text-slate-600">Case sensitive</label>
+                    </div>
+                  </div>
+                )}
+
+                {/* 43. Edit Text (In-place) options */}
+                {toolId === 'edit-text' && (
+                  <div className="space-y-4">
+                    <div className="bg-red-50/40 p-3 border border-red-100 rounded-xl text-[11px] text-slate-600 leading-normal">
+                      <strong className="text-red-600">In-place text editing:</strong> click any text on the page and edit it directly — the original glyphs are covered and the replacement is redrawn in place.
+                    </div>
+                    <div>
+                      <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block mb-1">Replacement text color</label>
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="color"
+                          value={editTextColor}
+                          onChange={(e) => setEditTextColor(e.target.value)}
+                          className="w-10 h-8 bg-slate-50 border border-slate-200 rounded-lg p-0.5 cursor-pointer"
+                        />
+                        <span className="text-xs text-slate-500">{editTextColor}</span>
+                      </div>
+                    </div>
+                    <div className="space-y-2 bg-slate-50 p-3 border border-slate-200 rounded-xl text-[10px] text-slate-500 leading-normal">
+                      <p className="font-bold text-slate-700">Notes:</p>
+                      <p>• Works best on digital (non-scanned) PDFs.</p>
+                      <p>• Replacement text is redrawn in Helvetica at the original size.</p>
+                      <p>• Clearing a field deletes that text (whitewash only).</p>
+                      <p>• Edited fields are highlighted amber and counted above.</p>
+                    </div>
+                  </div>
+                )}
+
+                {/* 44. Markdown to PDF options */}
+                {toolId === 'md-to-pdf' && (
+                  <div className="space-y-3 bg-red-50/40 p-4 border border-red-100 rounded-xl text-xs text-slate-500">
+                    <p className="font-bold text-slate-800">Markdown Compiler:</p>
+                    <p>• Supports headings, bold, italic, inline code, code blocks, lists, quotes, and links.</p>
+                    <p>• Renders to A4 pages client-side with pdf-lib.</p>
+                  </div>
+                )}
+
+                {/* 45. PDF to XML options */}
+                {toolId === 'pdf-to-xml' && (
+                  <div className="space-y-3 bg-red-50/40 p-4 border border-red-100 rounded-xl text-xs text-slate-500">
+                    <p className="font-bold text-slate-800">XML Export:</p>
+                    <p>• Reconstructs the document as structured <em>pdfml</em> XML with page, line, and word nodes.</p>
                   </div>
                 )}
               </div>

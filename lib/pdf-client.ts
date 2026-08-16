@@ -57,6 +57,44 @@ export async function extractTextFromPdf(buffer: ArrayBuffer): Promise<string> {
   return pages.join('\n\n');
 }
 
+export interface TextItemPosition {
+  page: number;
+  x: number;
+  y: number;
+  str: string;
+  width: number;
+  height: number;
+}
+
+// Structured text extraction (per-item position) used for CSV/table export.
+export async function getTextItems(buffer: ArrayBuffer): Promise<TextItemPosition[]> {
+  const pdf = await getPdfDoc(buffer);
+  const items: TextItemPosition[] = [];
+  for (let i = 1; i <= pdf.numPages; i++) {
+    const page = await pdf.getPage(i);
+    const content = await page.getTextContent();
+    for (const item of content.items) {
+      const ti = item as unknown as {
+        str?: string;
+        transform?: number[];
+        width?: number;
+        height?: number;
+      };
+      if (!ti || !ti.str) continue;
+      const transform = ti.transform;
+      items.push({
+        page: i,
+        x: transform ? transform[4] : 0,
+        y: transform ? transform[5] : 0,
+        str: ti.str,
+        width: ti.width || 0,
+        height: ti.height || 0,
+      });
+    }
+  }
+  return items;
+}
+
 export async function renderPdfPageToCanvas(
   buffer: ArrayBuffer,
   pageNum: number = 1,
@@ -128,6 +166,80 @@ export async function getPdfPageInfos(buffer: ArrayBuffer): Promise<PageInfo[]> 
     });
   }
   return infos;
+}
+
+export interface TextOverlayItem {
+  str: string;
+  x: number; // PDF user-space left edge (bottom-left origin)
+  y: number; // PDF user-space baseline (bottom-left origin)
+  width: number; // PDF points
+  height: number; // PDF points (approx. font size)
+  cssLeft: number; // rendered-viewport top-left X, CSS px at scale 1
+  cssTop: number; // rendered-viewport top-left Y, CSS px at scale 1
+  cssWidth: number;
+  cssHeight: number;
+  fontSize: number; // CSS px at scale 1 (≈ PDF font size)
+}
+
+// Text items pre-mapped to rendered-viewport (top-left) coordinates so they can
+// be overlaid directly onto a page rendered at `scale` via renderPdfPageToCanvas.
+// Also carries the original user-space coords needed to redraw edited text.
+export async function getTextOverlayItems(
+  buffer: ArrayBuffer,
+  pageNum: number,
+  scale: number = 2
+): Promise<TextOverlayItem[]> {
+  const pdf = await getPdfDoc(buffer);
+  const safePage = Math.min(Math.max(1, pageNum), pdf.numPages || 1);
+  const page = await pdf.getPage(safePage);
+  const viewport = page.getViewport({ scale });
+  const content = await page.getTextContent();
+  const out: TextOverlayItem[] = [];
+
+  for (const raw of content.items) {
+    const item = raw as unknown as {
+      str?: string;
+      transform?: number[];
+      width?: number;
+      height?: number;
+    };
+    if (!item || !item.str) continue;
+    const str = item.str;
+    if (!str.trim()) continue;
+    const t = item.transform || [1, 0, 0, 1, 0, 0];
+    const x = t[4];
+    const y = t[5];
+    const w = item.width || 0;
+    const h = item.height || 0;
+    if (w <= 1 || h <= 1) continue;
+
+    // Convert the text box corners (user space, bottom-left origin) into the
+    // rendered viewport so rotated pages still line up correctly.
+    const p0 = viewport.convertToViewportPoint(x, y);
+    const p1 = viewport.convertToViewportPoint(x + w, y);
+    const p2 = viewport.convertToViewportPoint(x, y + h);
+    const p3 = viewport.convertToViewportPoint(x + w, y + h);
+    const xs = [p0[0], p1[0], p2[0], p3[0]];
+    const ys = [p0[1], p1[1], p2[1], p3[1]];
+    const minX = Math.min(...xs);
+    const maxX = Math.max(...xs);
+    const minY = Math.min(...ys);
+    const maxY = Math.max(...ys);
+
+    out.push({
+      str,
+      x,
+      y,
+      width: w,
+      height: h,
+      cssLeft: minX / scale,
+      cssTop: minY / scale,
+      cssWidth: Math.max(4, (maxX - minX) / scale),
+      cssHeight: Math.max(4, (maxY - minY) / scale),
+      fontSize: Math.min(144, Math.max(5, h / scale)),
+    });
+  }
+  return out;
 }
 
 export async function pdfToZipOfJpgs(buffer: ArrayBuffer): Promise<Blob> {

@@ -1,5 +1,44 @@
-import { PDFDocument, rgb, degrees, StandardFonts } from 'pdf-lib';
+import {
+  PDFDocument, rgb, degrees, StandardFonts,
+  PDFName, PDFDict, PDFRef, PDFArray, PDFStream, PDFString,
+  PDFRawStream, PDFNumber, decodePDFRawStream,
+} from 'pdf-lib';
 import JSZip from 'jszip';
+// pako ships as a dependency of pdf-lib; we reuse its zlib deflate when
+// rebuilding PNG images during image extraction (types in pako.d.ts).
+import pako from 'pako';
+
+// Byte-safe latin1 helpers for content-stream rewrites (operator text is ASCII,
+// so latin1 round-trips every byte value 0-255 without corruption).
+const latin1Decode = (bytes: Uint8Array): string => {
+  let out = '';
+  for (let i = 0; i < bytes.length; i++) out += String.fromCharCode(bytes[i]);
+  return out;
+};
+
+const latin1Encode = (str: string): Uint8Array => {
+  const out = new Uint8Array(str.length);
+  for (let i = 0; i < str.length; i++) out[i] = str.charCodeAt(i) & 0xff;
+  return out;
+};
+
+const hexToRgb01 = (hex: string): [number, number, number] => {
+  const m = hex.replace('#', '').trim();
+  const full = m.length === 3 ? m.split('').map((c) => c + c).join('') : m;
+  const n = parseInt(full, 16);
+  if (Number.isNaN(n)) return [0, 0, 0];
+  return [((n >> 16) & 0xff) / 255, ((n >> 8) & 0xff) / 255, (n & 0xff) / 255];
+};
+
+const fmtPdfNumber = (v: number): string => Number(v.toFixed(3)).toString();
+
+// Decode a parsed content/image stream (handles FlateDecode and friends).
+const decodeStream = (stream: PDFStream): Uint8Array =>
+  decodePDFRawStream(stream as PDFRawStream).decode();
+
+// Read a numeric entry from a stream/dict (e.g. /Width).
+const numValue = (dict: PDFDict, name: PDFName): number | undefined =>
+  dict.lookupMaybe(name, PDFNumber)?.asNumber();
 import {
   protectPdf,
   unlockPdf,
@@ -1598,10 +1637,1481 @@ export const inspectPdfDetails = async (pdfBuffer: ArrayBuffer): Promise<PdfInsp
     creator: pdfDoc.getCreator() || 'None',
     producer: pdfDoc.getProducer() || 'None',
     creationDate: pdfDoc.getCreationDate() ? pdfDoc.getCreationDate()!.toISOString() : 'Unknown',
-    modificationDate: pdfDoc.getModificationDate() ? pdfDoc.getModificationDate()!.toISOString() : 'Unknown',
-    isEncrypted: false,
+    modificationDate: pdfDoc.getModificationDate() ? pdfDoc.getModificationDate()!.toISOString() : 'Unknown',    isEncrypted: false,
     formFieldCount: formCount,
   };
 };
+
+// 38. OVERLAY PDFS (Stirling-PDF Overlay)
+// Renders one or more overlay PDFs on top of a base PDF, scaling each overlay
+// page to fit (aspect-preserved, transparent background).
+export const overlayPdfs = async (
+  baseBuffer: ArrayBuffer,
+  overlayBuffers: ArrayBuffer[],
+  opacity: number = 1
+): Promise<Uint8Array> => {
+  const basePdf = await PDFDocument.load(baseBuffer);
+  const overlayDocs = await Promise.all(overlayBuffers.map((b) => PDFDocument.load(b)));
+  const pages = basePdf.getPages();
+
+  const safeOpacity = Math.min(1, Math.max(0.05, opacity));
+
+  for (let i = 0; i < pages.length; i++) {
+    const page = pages[i];
+    const { width, height } = page.getSize();
+
+    for (const overlayDoc of overlayDocs) {
+      const ovPages = overlayDoc.getPages();
+      if (ovPages.length === 0) continue;
+      const ovPage = ovPages[Math.min(i, ovPages.length - 1)];
+      const embedded = await basePdf.embedPage(ovPage);
+      const scale = Math.min(width / embedded.width, height / embedded.height);
+      const drawW = embedded.width * scale;
+      const drawH = embedded.height * scale;
+      page.drawPage(embedded, {
+        x: (width - drawW) / 2,
+        y: (height - drawH) / 2,
+        width: drawW,
+        height: drawH,
+        opacity: safeOpacity,
+      });
+    }
+  }
+
+  return await basePdf.save();
+};
+
+// 39. ADD IMAGE TO PDF (Stirling-PDF Add Images)
+// Embeds a JPG/PNG image onto a chosen page at a configurable position/size.
+export const addImageToPdf = async (
+  pdfBuffer: ArrayBuffer,
+  imageDataUrl: string,
+  options: { pageNumber: number; x: number; y: number; width: number; opacity: number }
+): Promise<Uint8Array> => {
+  const pdfDoc = await PDFDocument.load(pdfBuffer);
+  const pages = pdfDoc.getPages();
+  if (pages.length === 0) throw new Error('The PDF has no pages.');
+
+  const page = pages[Math.min(Math.max(1, options.pageNumber), pages.length) - 1];
+
+  const isPng = imageDataUrl.startsWith('data:image/png');
+  const img = isPng
+    ? await pdfDoc.embedPng(imageDataUrl)
+    : await pdfDoc.embedJpg(imageDataUrl);
+
+  const imgW = Math.max(10, options.width);
+  const imgH = (img.height / img.width) * imgW;
+
+  page.drawImage(img, {
+    x: Math.max(0, options.x),
+    y: Math.max(0, options.y),
+    width: imgW,
+    height: imgH,
+    opacity: Math.min(1, Math.max(0.05, options.opacity)),
+  });
+
+  return await pdfDoc.save();
+};
+
+// 40. REMOVE ANNOTATIONS (Stirling-PDF Remove Annotations)
+// Strips the /Annots array (comments, highlights, links, form widgets) from every page.
+export const removeAnnotations = async (pdfBuffer: ArrayBuffer): Promise<Uint8Array> => {
+  const pdfDoc = await PDFDocument.load(pdfBuffer);
+  const pages = pdfDoc.getPages();
+  for (const page of pages) {
+    page.node.delete(PDFName.of('Annots'));
+  }
+  return await pdfDoc.save();
+};
+
+// 41. SCALE PAGES (Stirling-PDF Scale Pages)
+// Re-renders every page (content included) at the given percentage size.
+export const scalePages = async (
+  pdfBuffer: ArrayBuffer,
+  percent: number
+): Promise<Uint8Array> => {
+  const pdfDoc = await PDFDocument.load(pdfBuffer);
+  const newPdf = await PDFDocument.create();
+  const pages = pdfDoc.getPages();
+  const factor = Math.min(2, Math.max(0.1, percent / 100));
+
+  for (const srcPage of pages) {
+    const { width, height } = srcPage.getSize();
+    const newW = width * factor;
+    const newH = height * factor;
+    const embedded = await newPdf.embedPage(srcPage);
+    const newPage = newPdf.addPage([newW, newH]);
+    newPage.drawPage(embedded, { x: 0, y: 0, width: newW, height: newH });
+  }
+
+  return await newPdf.save();
+};
+
+// 42. BOOKLET IMPOSITION (Stirling-PDF Booklet Imposition)
+// Reorders and pairs pages so that a duplex-printed, folded booklet reads in
+// order. Pads to a multiple of 4 with blank pages and outputs 2-up sheets.
+export const bookletImposition = async (pdfBuffer: ArrayBuffer): Promise<Uint8Array> => {
+  const pdfDoc = await PDFDocument.load(pdfBuffer);
+  const newPdf = await PDFDocument.create();
+  const pages = pdfDoc.getPages();
+  const N = pages.length;
+  const paddedN = N + ((4 - (N % 4)) % 4);
+
+  const getPage = (idx: number) => (idx < N ? pages[idx] : null);
+
+  const addSheet = async (leftIdx: number, rightIdx: number) => {
+    const left = getPage(leftIdx);
+    const right = getPage(rightIdx);
+    const sample = left || right;
+    const { width, height } = sample ? sample.getSize() : { width: 595.27, height: 841.89 };
+    const sheetW = width * 2;
+    const sheetH = height;
+    const sheet = newPdf.addPage([sheetW, sheetH]);
+    // White backing so blank padding pages are truly blank
+    sheet.drawRectangle({ x: 0, y: 0, width: sheetW, height: sheetH, color: rgb(1, 1, 1) });
+    if (left) {
+      const embedded = await newPdf.embedPage(left);
+      sheet.drawPage(embedded, { x: 0, y: 0, width, height });
+    }
+    if (right) {
+      const embedded = await newPdf.embedPage(right);
+      sheet.drawPage(embedded, { x: width, y: 0, width, height });
+    }
+  };
+
+  for (let s = 0; s < paddedN / 4; s++) {
+    // Reading order of the folded booklet: (last, first, second, second-to-last), ...
+    await addSheet(paddedN - 1 - 2 * s, 2 * s);       // sheet front
+    await addSheet(2 * s + 1, paddedN - 2 - 2 * s);   // sheet back
+  }
+
+  return await newPdf.save();
+};
+
+// 43. REPLACE COLORS (Stirling-PDF Replace Colors)
+// Rewrites page content streams, swapping every fill/stroke of one RGB color
+// for another. Also handles DeviceGray fills/strokes when the source is gray.
+export const replaceColors = async (
+  pdfBuffer: ArrayBuffer,
+  fromHex: string,
+  toHex: string
+): Promise<Uint8Array> => {
+  const pdfDoc = await PDFDocument.load(pdfBuffer);
+  const [fr, fg, fb] = hexToRgb01(fromHex);
+  const [tr, tg, tb] = hexToRgb01(toHex);
+  const targetFmt = [tr, tg, tb].map(fmtPdfNumber).join(' ');
+  const pages = pdfDoc.getPages();
+
+  const isSource = (r: number, g: number, b: number) =>
+    Math.abs(r - fr) < 0.02 && Math.abs(g - fg) < 0.02 && Math.abs(b - fb) < 0.02;
+
+  const replaceInStream = (decoded: Uint8Array): Uint8Array | null => {
+    const str = latin1Decode(decoded);
+    const out = str.replace(
+      /(\d+(?:\.\d+)?)\s+(\d+(?:\.\d+)?)\s+(\d+(?:\.\d+)?)\s+(rg|RG)/g,
+      (_, r, g, b, op) => {
+        return isSource(parseFloat(r), parseFloat(g), parseFloat(b))
+          ? `${targetFmt} ${op}`
+          : `${r} ${g} ${b} ${op}`;
+      }
+    ).replace(
+      /(\d+(?:\.\d+)?)\s+(g|G)/g,
+      (_, gray, op) => {
+        const gv = parseFloat(gray);
+        const isGray = Math.abs(fr - fg) < 0.001 && Math.abs(fg - fb) < 0.001 && Math.abs(gv - fr) < 0.02;
+        return isGray ? `${fmtPdfNumber(tr)} ${op}` : `${gray} ${op}`;
+      }
+    );
+    return out === str ? null : latin1Encode(out);
+  };
+
+  for (const page of pages) {
+    const contents = page.node.Contents();
+    if (!contents) continue;
+    const entry = contents instanceof PDFRef ? pdfDoc.context.lookup(contents) : contents;
+    const streams: PDFStream[] = [];
+    if (entry instanceof PDFArray) {
+      for (let i = 0; i < entry.size(); i++) {
+        const s = pdfDoc.context.lookup(entry.get(i) as PDFRef);
+        if (s instanceof PDFStream) streams.push(s);
+      }
+    } else if (entry instanceof PDFStream) {
+      streams.push(entry);
+    }
+    if (streams.length === 0) continue;
+
+    let combined = '';
+    for (const s of streams) combined += latin1Decode(decodeStream(s));
+    const replaced = replaceInStream(latin1Encode(combined));
+    if (!replaced) continue;
+
+    const newStream = pdfDoc.context.flateStream(replaced);
+    const newRef = pdfDoc.context.register(newStream);
+    page.node.set(PDFName.of('Contents'), newRef);
+  }
+
+  return await pdfDoc.save();
+};
+
+// 44. AUTO RENAME (Stirling-PDF Auto Rename)
+export const slugifyFilename = (text: string, maxLen: number = 60): string => {
+  const slug = text
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, maxLen);
+  return slug || 'document';
+};
+
+export const setPdfTitle = async (pdfBuffer: ArrayBuffer, title: string): Promise<Uint8Array> => {
+  const pdfDoc = await PDFDocument.load(pdfBuffer);
+  pdfDoc.setTitle(title);
+  return await pdfDoc.save();
+};
+
+// 45. SHOW JAVASCRIPT (Stirling-PDF Show JavaScript)
+// Extracts embedded JavaScript from document OpenAction, page additional
+// actions, and the /Names /JavaScript name tree.
+export const extractJavascriptFromPdf = async (
+  pdfBuffer: ArrayBuffer
+): Promise<{ name: string; source: string }[]> => {
+  const pdfDoc = await PDFDocument.load(pdfBuffer, { updateMetadata: false });
+  const found: { name: string; source: string }[] = [];
+
+  const resolve = (val: unknown): unknown =>
+    val instanceof PDFRef ? pdfDoc.context.lookup(val) : val;
+
+  const pushJs = (jsVal: unknown, label: string) => {
+    const js = resolve(jsVal);
+    if (js instanceof PDFString) found.push({ name: label, source: js.asString() });
+    else if (js instanceof PDFStream) found.push({ name: label, source: latin1Decode(decodeStream(js)) });
+  };
+
+  const jsFromAction = (actionVal: unknown, label: string) => {
+    const action = resolve(actionVal);
+    if (!(action instanceof PDFDict)) return;
+    const sName = resolve(action.get(PDFName.of('S')));
+    if (!(sName instanceof PDFName) || sName.asString() !== '/JavaScript') return;
+    pushJs(action.get(PDFName.of('JS')), label);
+  };
+
+  // Document-level OpenAction (either a single action or [dest, action] array)
+  const openAction = pdfDoc.catalog.get(PDFName.of('OpenAction'));
+  if (openAction) {
+    const oa = resolve(openAction);
+    if (oa instanceof PDFArray && oa.size() >= 2) jsFromAction(oa.get(1), 'OpenAction (document)');
+    else jsFromAction(oa, 'OpenAction (document)');
+  }
+
+  // Per-page additional actions (open/close)
+  for (let i = 0; i < pdfDoc.getPageCount(); i++) {
+    const aa = pdfDoc.getPage(i).node.get(PDFName.of('AA'));
+    if (!aa) continue;
+    const aaDict = resolve(aa);
+    if (!(aaDict instanceof PDFDict)) continue;
+    for (const [key, value] of aaDict.entries()) {
+      const v = resolve(value);
+      const label = `Page ${i + 1} ${key.asString()}`;
+      if (v instanceof PDFArray) {
+        for (let k = 0; k < v.size(); k++) jsFromAction(v.get(k), label);
+      } else {
+        jsFromAction(v, label);
+      }
+    }
+  }
+
+  // /Names /JavaScript name tree
+  const walkJsTree = (dict: PDFDict, label: string) => {
+    const namesArr = resolve(dict.get(PDFName.of('Names')));
+    if (namesArr instanceof PDFArray) {
+      for (let i = 0; i + 1 < namesArr.size(); i += 2) {
+        const nameVal = namesArr.get(i);
+        const name = nameVal instanceof PDFString ? nameVal.asString() : `entry-${i / 2}`;
+        const action = resolve(namesArr.get(i + 1));
+        if (action instanceof PDFDict) {
+          const sName = resolve(action.get(PDFName.of('S')));
+          if (sName instanceof PDFName && sName.asString() === '/JavaScript') {
+            pushJs(action.get(PDFName.of('JS')), `${label}: ${name}`);
+          }
+        }
+      }
+    }
+    const kids = resolve(dict.get(PDFName.of('Kids')));
+    if (kids instanceof PDFArray) {
+      for (let i = 0; i < kids.size(); i++) {
+        const kid = resolve(kids.get(i));
+        if (kid instanceof PDFDict) walkJsTree(kid, label);
+      }
+    }
+  };
+
+  const namesVal = resolve(pdfDoc.catalog.get(PDFName.of('Names')));
+  if (namesVal instanceof PDFDict) {
+    const jsTree = resolve(namesVal.get(PDFName.of('JavaScript')));
+    if (jsTree instanceof PDFDict) walkJsTree(jsTree, 'JavaScript Name Tree');
+  }
+
+  return found;
+};
+
+// 46. EXTRACT IMAGES (Stirling-PDF Extract Images)
+// Exports every embedded image as JPEG (DCTDecode passthrough) or PNG
+// (rebuilt from raw flate-decoded pixels when the encoding is simple).
+export const extractImagesToZip = async (pdfBuffer: ArrayBuffer): Promise<Blob> => {
+  const pdfDoc = await PDFDocument.load(pdfBuffer);
+  const zip = new JSZip();
+  let count = 0;
+
+  const resolve = (val: unknown): unknown =>
+    val instanceof PDFRef ? pdfDoc.context.lookup(val) : val;
+
+  const crc32 = (bytes: Uint8Array): number => {
+    let crc = 0xffffffff;
+    for (let i = 0; i < bytes.length; i++) {
+      crc ^= bytes[i];
+      for (let k = 0; k < 8; k++) crc = (crc >>> 1) ^ (0xedb88320 & -(crc & 1));
+    }
+    return (crc ^ 0xffffffff) >>> 0;
+  };
+
+  const pngChunk = (type: string, data: Uint8Array): Uint8Array => {
+    const len = new Uint8Array(4);
+    new DataView(len.buffer).setUint32(0, data.length);
+    const typeBytes = latin1Encode(type);
+    const crcBytes = new Uint8Array(4);
+    const crcData = new Uint8Array(typeBytes.length + data.length);
+    crcData.set(typeBytes, 0);
+    crcData.set(data, typeBytes.length);
+    new DataView(crcBytes.buffer).setUint32(0, crc32(crcData));
+    const out = new Uint8Array(len.length + typeBytes.length + data.length + crcBytes.length);
+    out.set(len, 0);
+    out.set(typeBytes, 4);
+    out.set(data, 4 + typeBytes.length);
+    out.set(crcBytes, 4 + typeBytes.length + data.length);
+    return out;
+  };
+
+  const buildPng = (
+    raw: Uint8Array,
+    width: number,
+    height: number,
+    colorType: number,
+    channels: number
+  ): Uint8Array | null => {
+    const sig = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+    const ihdr = new Uint8Array(13);
+    const dv = new DataView(ihdr.buffer);
+    dv.setUint32(0, width);
+    dv.setUint32(4, height);
+    ihdr[8] = 8; // bit depth
+    ihdr[9] = colorType;
+    ihdr[10] = 0; // compression
+    ihdr[11] = 0; // filter
+    ihdr[12] = 0; // interlace
+
+    const stride = width * channels;
+    const scanlines = new Uint8Array((stride + 1) * height);
+    for (let y = 0; y < height; y++) {
+      scanlines[y * (stride + 1)] = 0; // filter: none
+      scanlines.set(raw.subarray(y * stride, (y + 1) * stride), y * (stride + 1) + 1);
+    }
+
+    // pako is bundled with pdf-lib; used here to zlib-compress the IDAT payload
+    const idat = pako.deflate(scanlines, { level: 6 });
+
+    const parts: Uint8Array[] = [sig, pngChunk('IHDR', ihdr), pngChunk('IDAT', idat), pngChunk('IEND', new Uint8Array(0))];
+    const total = parts.reduce((acc, p) => acc + p.length, 0);
+    const out = new Uint8Array(total);
+    let off = 0;
+    for (const p of parts) {
+      out.set(p, off);
+      off += p.length;
+    }
+    return out;
+  };
+
+  const isJpegFilter = (filterVal: unknown): boolean => {
+    const f = resolve(filterVal);
+    if (f instanceof PDFName) return f.asString() === '/DCTDecode';
+    if (f instanceof PDFArray && f.size() === 1) {
+      const single = resolve(f.get(0));
+      return single instanceof PDFName && single.asString() === '/DCTDecode';
+    }
+    return false;
+  };
+
+  for (let p = 0; p < pdfDoc.getPageCount(); p++) {
+    const resources = pdfDoc.getPage(p).node.Resources();
+    if (!resources) continue;
+    const xobj = resolve(resources.get(PDFName.of('XObject')));
+    if (!(xobj instanceof PDFDict)) continue;
+
+    for (const [key, val] of xobj.entries()) {
+      const stream = resolve(val);
+      if (!(stream instanceof PDFStream)) continue;
+      const subtype = resolve(stream.dict.get(PDFName.of('Subtype')));
+      if (!(subtype instanceof PDFName) || subtype.asString() !== '/Image') continue;
+
+      count++;
+      const base = `page-${p + 1}-${key.asString().replace(/[^a-zA-Z0-9_-]/g, '_')}`;
+
+      if (isJpegFilter(stream.dict.get(PDFName.of('Filter')))) {
+        zip.file(`${base}.jpg`, stream.getContents());
+        continue;
+      }
+
+      // Try to rebuild as PNG (only simple 8-bit, non-predictor encodings)
+      try {
+        const width = numValue(stream.dict, PDFName.of('Width'));
+        const height = numValue(stream.dict, PDFName.of('Height'));
+        const bits = numValue(stream.dict, PDFName.of('BitsPerComponent')) ?? 8;
+        const decodeParms = resolve(stream.dict.get(PDFName.of('DecodeParms')));
+        const parms = decodeParms instanceof PDFArray ? resolve(decodeParms.get(0)) : decodeParms;
+        const predictor = parms instanceof PDFDict ? (numValue(parms, PDFName.of('Predictor')) ?? 1) : 1;
+        if (!width || !height || bits !== 8 || predictor > 1) {
+          zip.file(`${base}.raw`, decodeStream(stream));
+          continue;
+        }
+
+        const colorSpace = resolve(stream.dict.get(PDFName.of('ColorSpace')));
+        let csName: string | null = null;
+        if (colorSpace instanceof PDFName) csName = colorSpace.asString();
+        else if (colorSpace instanceof PDFArray && colorSpace.size() >= 1) {
+          const first = resolve(colorSpace.get(0));
+          if (first instanceof PDFName) csName = first.asString();
+        }
+
+        const raw = decodeStream(stream);
+        if (csName === '/DeviceGray') {
+          const png = buildPng(raw, width, height, 0, 1);
+          zip.file(`${base}.png`, png ?? raw);
+        } else if (csName === '/DeviceRGB') {
+          const png = buildPng(raw, width, height, 2, 3);
+          zip.file(`${base}.png`, png ?? raw);
+        } else if (csName === '/DeviceCMYK') {
+          // convert CMYK -> RGB so the image is viewable
+          const rgb = new Uint8Array(raw.length);
+          for (let i = 0; i + 3 < raw.length; i += 4) {
+            const c = raw[i] / 255, m = raw[i + 1] / 255, y = raw[i + 2] / 255, k = raw[i + 3] / 255;
+            rgb[i] = Math.round(255 * (1 - Math.min(1, c * (1 - k) + k)));
+            rgb[i + 1] = Math.round(255 * (1 - Math.min(1, m * (1 - k) + k)));
+            rgb[i + 2] = Math.round(255 * (1 - Math.min(1, y * (1 - k) + k)));
+            rgb[i + 3] = 255;
+          }
+          const png = buildPng(rgb, width, height, 6, 4);
+          zip.file(`${base}.png`, png ?? raw);
+        } else {
+          zip.file(`${base}.raw`, raw);
+        }
+      } catch {
+        zip.file(`${base}.raw`, decodeStream(stream));
+      }
+    }
+  }
+
+  if (count === 0) throw new Error('No embedded images found in this PDF.');
+  return await zip.generateAsync({ type: 'blob' });
+};
+
+// 47. PDF TO CSV (Stirling-PDF Convert: PDF to CSV)
+// Reconstructs a line-based CSV from positioned text items using pdf.js.
+export const pdfToCsv = async (pdfBuffer: ArrayBuffer): Promise<string> => {
+  const { getTextItems } = await import('./pdf-client');
+  const items = await getTextItems(pdfBuffer);
+  if (items.length === 0) return '';
+
+  const pageMap = new Map<number, { y: number; x: number; str: string }[]>();
+  for (const it of items) {
+    const arr = pageMap.get(it.page) ?? [];
+    arr.push({ y: it.y, x: it.x, str: it.str });
+    pageMap.set(it.page, arr);
+  }
+
+  const rows: string[] = [];
+  const pages = [...pageMap.keys()].sort((a, b) => a - b);
+  for (const pageNum of pages) {
+    const arr = pageMap.get(pageNum)!;
+    arr.sort((a, b) => b.y - a.y || a.x - b.x);
+    const lines: { y: number; cells: string[] }[] = [];
+    for (const it of arr) {
+      let line = lines.find((l) => Math.abs(l.y - it.y) < 3);
+      if (!line) {
+        line = { y: it.y, cells: [] };
+        lines.push(line);
+      }
+      line.cells.push(it.str.trim());
+    }
+    for (const line of lines) {
+      rows.push(
+        line.cells
+          .filter((c) => c.length > 0)
+          .map((c) => (/[,"\n]/.test(c) ? `"${c.replace(/"/g, '""')}"` : c))
+          .join(',')
+      );
+    }
+  }
+  return rows.join('\n');
+};
+
+// 48. SCANNER EFFECT (Stirling-PDF Scanner Effect)
+// Rasterizes every page and applies a scan-like look: grayscale, random noise,
+// and a slight skew angle. Browser-only (needs canvas rendering).
+export interface ScannerEffectOptions {
+  angle: number;
+  noise: number;
+  grayscale: boolean;
+}
+
+// Pure pixel transform (unit-testable in Node).
+export const applyScannerEffect = (
+  data: Uint8ClampedArray,
+  noise: number,
+  grayscale: boolean
+): void => {
+  for (let i = 0; i < data.length; i += 4) {
+    let r = data[i];
+    let g = data[i + 1];
+    let b = data[i + 2];
+    if (grayscale) {
+      const lum = Math.round(0.299 * r + 0.587 * g + 0.114 * b);
+      r = lum;
+      g = lum;
+      b = lum;
+    }
+    if (noise > 0) {
+      const n = (Math.random() * 2 - 1) * noise;
+      r = Math.min(255, Math.max(0, r + n));
+      g = Math.min(255, Math.max(0, g + n));
+      b = Math.min(255, Math.max(0, b + n));
+    }
+    data[i] = r;
+    data[i + 1] = g;
+    data[i + 2] = b;
+  }
+};
+
+export const scannerEffectPdf = async (
+  pdfBuffer: ArrayBuffer,
+  options: ScannerEffectOptions
+): Promise<Uint8Array> => {
+  const { renderPdfPageToCanvas } = await import('./pdf-client');
+  const pdfDoc = await PDFDocument.load(pdfBuffer);
+  const newPdf = await PDFDocument.create();
+  const pageCount = pdfDoc.getPageCount();
+  const noise = Math.min(40, Math.max(0, options.noise));
+  const angle = Math.min(3, Math.max(0, options.angle));
+  const scale = 2;
+
+  for (let i = 1; i <= pageCount; i++) {
+    const { width, height } = pdfDoc.getPage(i - 1).getSize();
+    const canvas = await renderPdfPageToCanvas(pdfBuffer, i, scale);
+    const ctx = canvas.getContext('2d');
+    if (!ctx) throw new Error('Canvas is not supported in this browser.');
+    const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    applyScannerEffect(imgData.data, noise, options.grayscale);
+    ctx.putImageData(imgData, 0, 0);
+
+    const rad = (Math.random() * 2 - 1) * ((angle * Math.PI) / 180);
+    const cos = Math.abs(Math.cos(rad));
+    const sin = Math.abs(Math.sin(rad));
+    const rotCanvas = document.createElement('canvas');
+    rotCanvas.width = Math.max(1, Math.ceil(canvas.width * cos + canvas.height * sin));
+    rotCanvas.height = Math.max(1, Math.ceil(canvas.width * sin + canvas.height * cos));
+    const rctx = rotCanvas.getContext('2d');
+    if (!rctx) throw new Error('Canvas is not supported in this browser.');
+    rctx.fillStyle = '#ffffff';
+    rctx.fillRect(0, 0, rotCanvas.width, rotCanvas.height);
+    rctx.translate(rotCanvas.width / 2, rotCanvas.height / 2);
+    rctx.rotate(rad);
+    rctx.drawImage(canvas, -canvas.width / 2, -canvas.height / 2);
+
+    const dataUrl = rotCanvas.toDataURL('image/jpeg', 0.9);
+    const img = await newPdf.embedJpg(dataUrl);
+    const page = newPdf.addPage([width, height]);
+    page.drawImage(img, { x: 0, y: 0, width, height });
+  }
+
+  return await newPdf.save();
+};
+
+// 49. MARKDOWN TO PDF (Stirling-PDF Convert: Markdown to PDF)
+interface MdSeg {
+  text: string;
+  bold: boolean;
+  italic: boolean;
+  mono: boolean;
+}
+
+const parseInlineMd = (line: string): MdSeg[] => {
+  const segs: MdSeg[] = [];
+  const regex = /(\*\*[^*]+\*\*|\*[^*]+\*|`[^`]+`|\[[^\]]+\]\([^)]+\))/g;
+  let last = 0;
+  let m: RegExpExecArray | null;
+  while ((m = regex.exec(line))) {
+    if (m.index > last) segs.push({ text: line.slice(last, m.index), bold: false, italic: false, mono: false });
+    const tok = m[0];
+    if (tok.startsWith('**')) segs.push({ text: tok.slice(2, -2), bold: true, italic: false, mono: false });
+    else if (tok.startsWith('`')) segs.push({ text: tok.slice(1, -1), bold: false, italic: false, mono: true });
+    else if (tok.startsWith('*')) segs.push({ text: tok.slice(1, -1), bold: false, italic: true, mono: false });
+    else {
+      const mm = /\[([^\]]+)\]\(([^)]+)\)/.exec(tok);
+      segs.push({ text: mm ? mm[1] : tok, bold: false, italic: false, mono: false });
+    }
+    last = regex.lastIndex;
+  }
+  if (last < line.length) segs.push({ text: line.slice(last), bold: false, italic: false, mono: false });
+  return segs;
+};
+
+export const markdownToPdf = async (
+  markdown: string,
+  opts: { pageSize?: 'a4' | 'letter' } = {}
+): Promise<Uint8Array> => {
+  const doc = await PDFDocument.create();
+  const fonts = {
+    regular: await doc.embedFont(StandardFonts.Helvetica),
+    bold: await doc.embedFont(StandardFonts.HelveticaBold),
+    italic: await doc.embedFont(StandardFonts.HelveticaOblique),
+    boldItalic: await doc.embedFont(StandardFonts.HelveticaBoldOblique),
+    mono: await doc.embedFont(StandardFonts.Courier),
+  };
+  const isLetter = opts.pageSize === 'letter';
+  const W = isLetter ? 612 : 595.27;
+  const H = isLetter ? 792 : 841.89;
+  const margin = 54;
+
+  let page = doc.addPage([W, H]);
+  let y = H - margin;
+  const ensure = (needed: number) => {
+    if (y - needed < margin) {
+      page = doc.addPage([W, H]);
+      y = H - margin;
+    }
+  };
+
+  const fontFor = (s: MdSeg) =>
+    s.mono ? fonts.mono : s.bold ? (s.italic ? fonts.boldItalic : fonts.bold) : s.italic ? fonts.italic : fonts.regular;
+
+  const drawWrapped = (segs: MdSeg[], size: number, indent = 0, color = rgb(0.1, 0.1, 0.1), lineGap = 1.45) => {
+    const maxWidth = W - margin * 2 - indent;
+    const lineWords: { seg: MdSeg; text: string }[] = [];
+    let lineW = 0;
+
+    const drawLine = () => {
+      let x = margin + indent;
+      for (const lw of lineWords) {
+        const font = fontFor(lw.seg);
+        page.drawText(lw.text, { x, y, size, font, color });
+        x += font.widthOfTextAtSize(lw.text, size);
+      }
+      y -= size * lineGap;
+    };
+
+    let textBuffer: string[] = [];
+    let curSeg: MdSeg | null = null;
+    const flushWord = () => {
+      if (!curSeg) return;
+      const text = textBuffer.join('');
+      const font = fontFor(curSeg);
+      if (lineWords.length > 0 && lineW + font.widthOfTextAtSize(text, size) > maxWidth) {
+        ensure(size * lineGap);
+        drawLine();
+        lineWords.length = 0;
+        lineW = 0;
+      }
+      lineWords.push({ seg: curSeg, text });
+      lineW += font.widthOfTextAtSize(text + ' ', size);
+      textBuffer = [];
+      curSeg = null;
+    };
+    for (const seg of segs) {
+      const clean = sanitizeForPdfFont(seg.text);
+      if (!clean) continue;
+      const tokens = clean.split(/(\s+)/);
+      for (const tok of tokens) {
+        if (tok === '') continue;
+        if (/^\s+$/.test(tok)) {
+          if (curSeg) flushWord();
+        } else {
+          if (curSeg && curSeg !== seg) flushWord();
+          curSeg = seg;
+          textBuffer.push(tok);
+        }
+      }
+    }
+    if (curSeg) flushWord();
+    if (lineWords.length > 0) {
+      ensure(size * lineGap);
+      drawLine();
+    }
+  };
+
+  const rawLines = markdown.split(/\r?\n/);
+  let inCode = false;
+  let codeBuf: string[] = [];
+
+  const flushCode = () => {
+    if (codeBuf.length === 0) return;
+    const codeFont = fonts.mono;
+    const size = 9;
+    for (const line of codeBuf) {
+      ensure(size * 1.5);
+      const clean = sanitizeForPdfFont(line);
+      if (clean) {
+        page.drawRectangle({ x: margin - 8, y: y - size + 2, width: W - margin * 2 + 16, height: size * 1.4, color: rgb(0.96, 0.96, 0.98) });
+        page.drawText(clean, { x: margin, y, size, font: codeFont, color: rgb(0.15, 0.15, 0.15) });
+      }
+      y -= size * 1.5;
+    }
+    codeBuf = [];
+  };
+
+  for (const raw of rawLines) {
+    const line = raw.trimEnd();
+    if (/^```/.test(line.trim())) {
+      if (inCode) {
+        flushCode();
+        y -= 6;
+        inCode = false;
+      } else {
+        inCode = true;
+      }
+      continue;
+    }
+    if (inCode) {
+      codeBuf.push(line);
+      continue;
+    }
+
+    const trimmed = line.trim();
+    if (!trimmed) {
+      y -= 6;
+      continue;
+    }
+    if (/^(-{3,}|\*{3,}|_{3,})$/.test(trimmed)) {
+      ensure(20);
+      page.drawLine({ start: { x: margin, y: y + 6 }, end: { x: W - margin, y: y + 6 }, thickness: 1, color: rgb(0.7, 0.7, 0.7) });
+      y -= 16;
+      continue;
+    }
+    const hMatch = /^(#{1,6})\s+(.*)$/.exec(trimmed);
+    if (hMatch) {
+      const level = hMatch[1].length;
+      const size = Math.max(12, 24 - level * 2);
+      ensure(size * 1.8);
+      page.drawText(sanitizeForPdfFont(hMatch[2]), { x: margin, y, size, font: fonts.bold, color: rgb(0.05, 0.05, 0.1) });
+      y -= size * 1.8;
+      continue;
+    }
+    const quoteMatch = /^>\s?(.*)$/.exec(trimmed);
+    if (quoteMatch) {
+      ensure(20);
+      page.drawRectangle({ x: margin, y: y - 10, width: 3, height: 14, color: rgb(0.75, 0.75, 0.8) });
+      drawWrapped(parseInlineMd(quoteMatch[1]), 10, 12, rgb(0.35, 0.35, 0.4));
+      y -= 4;
+      continue;
+    }
+    const listMatch = /^(\d+\.|[-*+])\s+(.*)$/.exec(trimmed);
+    if (listMatch) {
+      const isOrdered = /^\d+\./.test(listMatch[1]);
+      const bullet = isOrdered ? `${listMatch[1].replace('.', '')}.` : '•';
+      ensure(20);
+      page.drawText(bullet, { x: margin, y, size: 11, font: fonts.regular, color: rgb(0.2, 0.2, 0.2) });
+      drawWrapped(parseInlineMd(listMatch[2]), 11, 18);
+      y -= 3;
+      continue;
+    }
+    // normal paragraph
+    ensure(20);
+    drawWrapped(parseInlineMd(trimmed), 11);
+    y -= 6;
+  }
+  flushCode();
+  return await doc.save();
+};
+
+// 50. PDF TO XML (Stirling-PDF Convert: PDF to XML)
+const xmlEscape = (s: string): string =>
+  s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&apos;');
+
+export const pdfToXml = async (pdfBuffer: ArrayBuffer): Promise<string> => {
+  const { getTextItems } = await import('./pdf-client');
+  const items = await getTextItems(pdfBuffer);
+  const pageMap = new Map<number, { y: number; x: number; str: string }[]>();
+  for (const it of items) {
+    const arr = pageMap.get(it.page) ?? [];
+    arr.push({ y: it.y, x: it.x, str: it.str });
+    pageMap.set(it.page, arr);
+  }
+  const pages = [...pageMap.keys()].sort((a, b) => a - b);
+  const out: string[] = ['<?xml version="1.0" encoding="UTF-8"?>', '<pdfml>'];
+  for (const pageNum of pages) {
+    out.push(`  <page number="${pageNum}">`);
+    const arr = pageMap.get(pageNum)!;
+    arr.sort((a, b) => b.y - a.y || a.x - b.x);
+    const lines: { y: number; words: { x: number; str: string }[] }[] = [];
+    for (const it of arr) {
+      let line = lines.find((l) => Math.abs(l.y - it.y) < 3);
+      if (!line) {
+        line = { y: it.y, words: [] };
+        lines.push(line);
+      }
+      line.words.push({ x: it.x, str: it.str });
+    }
+    for (const line of lines) {
+      out.push(`    <line y="${line.y.toFixed(1)}">`);
+      for (const w of line.words) {
+        out.push(`      <word x="${w.x.toFixed(1)}">${xmlEscape(w.str)}</word>`);
+      }
+      out.push('    </line>');
+    }
+    out.push('  </page>');
+  }
+  out.push('</pdfml>');
+  return out.join('\n');
+};
+
+// 51. FIND & REPLACE TEXT (Stirling-PDF Text Editor approximation)
+export const findReplaceTextPdf = async (
+  pdfBuffer: ArrayBuffer,
+  findText: string,
+  replaceText: string,
+  caseSensitive: boolean = false
+): Promise<Uint8Array> => {
+  const { getTextItems } = await import('./pdf-client');
+  const items = await getTextItems(pdfBuffer);
+  const pdfDoc = await PDFDocument.load(pdfBuffer);
+  const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
+  const pages = pdfDoc.getPages();
+  const findNorm = findText.trim();
+  if (!findNorm) throw new Error('Please enter the text to find.');
+
+  let replacedCount = 0;
+  for (let p = 0; p < pages.length; p++) {
+    const page = pages[p];
+    const pageItems = items.filter((it) => it.page === p + 1);
+    const lines: { y: number; items: typeof pageItems }[] = [];
+    for (const it of pageItems) {
+      let line = lines.find((l) => Math.abs(l.y - it.y) < 3);
+      if (!line) {
+        line = { y: it.y, items: [] };
+        lines.push(line);
+      }
+      line.items.push(it);
+    }
+    for (const line of lines) {
+      line.items.sort((a, b) => a.x - b.x);
+      for (const it of line.items) {
+        const text = it.str || '';
+        const cmp = caseSensitive ? text : text.toLowerCase();
+        if (cmp !== findNorm.toLowerCase() && !caseSensitive) continue;
+        if (caseSensitive && cmp !== findNorm) continue;
+        const size = it.height > 0 ? it.height : Math.max(6, it.width * 0.6);
+        const rectW = Math.max(it.width, 2);
+        page.drawRectangle({
+          x: it.x - 1,
+          y: it.y - size * 0.75,
+          width: rectW + 2,
+          height: size * 1.3,
+          color: rgb(1, 1, 1),
+        });
+        const clean = sanitizeForPdfFont(replaceText);
+        if (clean) {
+          const fit = Math.min(size, (rectW + 2) / Math.max(1, font.widthOfTextAtSize(clean, size)) * size);
+          page.drawText(clean, {
+            x: it.x,
+            y: it.y - size * 0.25,
+            size: Math.max(4, fit),
+            font,
+            color: rgb(0.1, 0.1, 0.1),
+          });
+        }
+        replacedCount++;
+      }
+    }
+  }
+  if (replacedCount === 0) {
+    throw new Error(`No exact matches for "${findText}" were found.`);
+  }
+  return await pdfDoc.save();
+};
+
+// 52. IN-PLACE TEXT EDITOR — real text editing. The original glyphs are
+// covered with a white "redaction" rectangle, then the replacement text is
+// redrawn at the same spot so page layout is preserved. Coordinates come from
+// pdf.js text items (PDF user space, bottom-left origin, y = baseline).
+export interface TextEditItem {
+  id: string;
+  page: number; // 1-indexed
+  x: number; // PDF points, left edge
+  y: number; // PDF points, baseline
+  width: number; // PDF points
+  height: number; // PDF points (approx. font size)
+  newText: string; // replacement text; '' deletes the original
+  color?: string; // hex, defaults to black
+}
+
+export const editPdfText = async (
+  pdfBuffer: ArrayBuffer,
+  edits: TextEditItem[]
+): Promise<Uint8Array> => {
+  const pdfDoc = await PDFDocument.load(pdfBuffer);
+  const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
+  const pages = pdfDoc.getPages();
+
+  for (const edit of edits) {
+    const pageIndex = Math.min(Math.max(0, edit.page - 1), pages.length - 1);
+    const page = pages[pageIndex];
+    const size = Math.max(4, edit.height || 10);
+    const pad = Math.max(1.5, size * 0.06);
+
+    // Whitewash the original glyph bounding box.
+    page.drawRectangle({
+      x: edit.x - pad,
+      y: edit.y - size * 0.78 - pad,
+      width: Math.max(2, edit.width) + pad * 2,
+      height: size * 1.3 + pad * 2,
+      color: rgb(1, 1, 1),
+    });
+
+    const clean = sanitizeForPdfFont(edit.newText);
+    if (clean) {
+      const hex = (edit.color || '#000000').replace('#', '');
+      const r = parseInt(hex.substring(0, 2), 16) / 255 || 0;
+      const g = parseInt(hex.substring(2, 4), 16) / 255 || 0;
+      const b = parseInt(hex.substring(4, 6), 16) / 255 || 0;
+      // Shrink the replacement font so it fits inside the original text box.
+      const boxW = Math.max(2, edit.width);
+      const fit = Math.min(size, (boxW / Math.max(1, font.widthOfTextAtSize(clean, size))) * size);
+      page.drawText(clean, {
+        x: edit.x,
+        y: edit.y - size * 0.25,
+        size: Math.max(4, fit),
+        font,
+        color: rgb(r, g, b),
+      });
+    }
+  }
+  return await pdfDoc.save();
+};
+
+// 53. REAL OCR (Tesseract.js) - makes scanned PDFs searchable.
+// Pipeline mirrors OCRmyPDF: pages that already contain extractable text are
+// copied through untouched; scanned pages are deskewed, cleaned (grayscale +
+// adaptive threshold), OCR'd, then the original image is re-embedded with an
+// invisible, perfectly aligned searchable text layer on top.
+export interface OcrResult {
+  bytes: Uint8Array;
+  texts: string[];
+  pagesOcr: number;
+  pagesSkipped: number;
+}
+
+// Detect the skew angle of a grayscale image (degrees) by maximizing the
+// variance of the horizontal projection profile over candidate rotations.
+// Returns 0 when the page is already straight or the estimate is unreliable.
+export function estimateSkewAngle(canvas: HTMLCanvasElement): number {
+  const src = canvas.getContext('2d')!;
+  const w = canvas.width;
+  const h = canvas.height;
+  // Work on a small grayscale bitmap for speed.
+  const scale = Math.min(1, 700 / Math.max(w, h));
+  const bw = Math.max(2, Math.round(w * scale));
+  const bh = Math.max(2, Math.round(h * scale));
+  const c = document.createElement('canvas');
+  c.width = bw;
+  c.height = bh;
+  const ctx = c.getContext('2d')!;
+  ctx.drawImage(canvas, 0, 0, bw, bh);
+  const img = ctx.getImageData(0, 0, bw, bh);
+  const d = img.data;
+  // Binarize: dark pixels = ink.
+  const ink: boolean[] = new Array(bw * bh);
+  let inkCount = 0;
+  for (let i = 0; i < bw * bh; i++) {
+    const lum = d[i * 4] * 0.299 + d[i * 4 + 1] * 0.587 + d[i * 4 + 2] * 0.114;
+    ink[i] = lum < 128;
+    if (ink[i]) inkCount++;
+  }
+  // Too little ink (blank page) -> no skew.
+  if (inkCount < bw * bh * 0.002) return 0;
+
+  const score = (angle: number): number => {
+    const cos = Math.cos((angle * Math.PI) / 180);
+    const sin = Math.sin((angle * Math.PI) / 180);
+    const cx = bw / 2;
+    const cy = bh / 2;
+    // Row sums of the rotated bitmap (projection profile).
+    const rows = new Float64Array(bh);
+    let total = 0;
+    for (let y = 0; y < bh; y++) {
+      const dy = y - cy;
+      let sum = 0;
+      for (let x = 0; x < bw; x++) {
+        const dx = x - cx;
+        const sx = Math.round(cx + dx * cos - dy * sin);
+        const sy = Math.round(cy + dx * sin + dy * cos);
+        if (sx >= 0 && sx < bw && sy >= 0 && sy < bh && ink[sy * bw + sx]) sum++;
+      }
+      rows[y] = sum;
+      total += sum;
+    }
+    const mean = total / bh;
+    let variance = 0;
+    for (let y = 0; y < bh; y++) {
+      const diff = rows[y] - mean;
+      variance += diff * diff;
+    }
+    return variance;
+  };
+
+  let bestAngle = 0;
+  let bestScore = score(0);
+  for (let a = -5; a <= 5; a += 0.5) {
+    if (a === 0) continue;
+    const s = score(a);
+    if (s > bestScore) {
+      bestScore = s;
+      bestAngle = a;
+    }
+  }
+  return bestAngle;
+}
+
+// Clean a page canvas before OCR: grayscale + simple threshold to kill
+// background noise (photocopy/skew artifacts), matching OCRmyPDF's cleanup.
+export function cleanPageCanvas(canvas: HTMLCanvasElement): HTMLCanvasElement {
+  const w = canvas.width;
+  const h = canvas.height;
+  const c = document.createElement('canvas');
+  c.width = w;
+  c.height = h;
+  const ctx = c.getContext('2d')!;
+  ctx.drawImage(canvas, 0, 0);
+  const img = ctx.getImageData(0, 0, w, h);
+  const d = img.data;
+  for (let i = 0; i < d.length; i += 4) {
+    const lum = d[i] * 0.299 + d[i + 1] * 0.587 + d[i + 2] * 0.114;
+    // Soft threshold: lift near-white to white, darken near-black slightly.
+    const v = lum < 150 ? Math.max(0, lum - 15) : 255;
+    d[i] = v;
+    d[i + 1] = v;
+    d[i + 2] = v;
+  }
+  ctx.putImageData(img, 0, 0);
+  return c;
+}
+
+export const ocrPdf = async (
+  pdfBuffer: ArrayBuffer,
+  opts: { lang?: string; onProgress?: (pct: number) => void } = {}
+): Promise<OcrResult> => {
+  const { renderPdfPageToCanvas, getTextItems } = await import('./pdf-client');
+  const Tesseract = (await import('tesseract.js')).default;
+  const pdfDoc = await PDFDocument.load(pdfBuffer);
+  const newPdf = await PDFDocument.create();
+  const pageCount = pdfDoc.getPageCount();
+  const texts: string[] = [];
+  const lang = opts.lang || 'eng';
+  const scale = 2;
+  let pagesOcr = 0;
+  let pagesSkipped = 0;
+
+  // Extract existing text once up front so we can skip pages that already
+  // carry a real text layer (OCRmyPDF behavior: no re-rasterizing of
+  // born-digital pages, which keeps quality and speed).
+  const existingItems = await getTextItems(pdfBuffer).catch(() => [] as Awaited<ReturnType<typeof getTextItems>>);
+
+  for (let i = 0; i < pageCount; i++) {
+    const { width, height } = pdfDoc.getPage(i).getSize();
+
+    const existingText = existingItems
+      .filter((it) => it.page === i + 1)
+      .map((it) => it.str)
+      .join(' ')
+      .trim();
+    const hasRealText = existingText.length > 30;
+
+    if (hasRealText) {
+      texts.push(existingText);
+      const [copied] = await newPdf.copyPages(pdfDoc, [i]);
+      newPdf.addPage(copied);
+      pagesSkipped++;
+      continue;
+    }
+
+    const canvas = await renderPdfPageToCanvas(pdfBuffer, i + 1, scale);
+    // Deskew then clean, mirroring OCRmyPDF's --deskew --clean passes.
+    const angle = estimateSkewAngle(canvas);
+    let ocrCanvas = canvas;
+    if (Math.abs(angle) >= 0.4) {
+      const rotated = document.createElement('canvas');
+      rotated.width = canvas.width;
+      rotated.height = canvas.height;
+      const rctx = rotated.getContext('2d')!;
+      rctx.translate(rotated.width / 2, rotated.height / 2);
+      rctx.rotate((angle * Math.PI) / 180);
+      rctx.drawImage(canvas, -canvas.width / 2, -canvas.height / 2);
+      ocrCanvas = rotated;
+    }
+    ocrCanvas = cleanPageCanvas(ocrCanvas);
+
+    const result = (await Tesseract.recognize(ocrCanvas, lang, {
+      logger: (m: { status: string; progress: number }) => {
+        if (m.status === 'recognizing text' && opts.onProgress) {
+          opts.onProgress(((i + m.progress) / pageCount) * 100);
+        }
+      },
+    })) as unknown as { data: { text?: string; words?: { bbox: { x0: number; y0: number; x1: number; y1: number }; text: string }[] } };
+    const data = result.data;
+    texts.push(data.text || '');
+    pagesOcr++;
+
+    const newPage = newPdf.addPage([width, height]);
+    // Re-embed the ORIGINAL (uncleaned) render so the output keeps its true
+    // appearance; the cleaned copy was only used for recognition.
+    const img = await newPdf.embedJpg(canvas.toDataURL('image/jpeg', 0.92));
+    newPage.drawImage(img, { x: 0, y: 0, width, height });
+
+    // Invisible selectable text layer (opacity 0 keeps it searchable/copyable)
+    const font = await newPdf.embedFont(StandardFonts.Helvetica);
+    const words = data.words || [];
+    for (const w of words) {
+      const clean = sanitizeForPdfFont(w.text);
+      if (!clean) continue;
+      const px = (w.bbox.x0 / ocrCanvas.width) * width;
+      const ph = Math.max(2, ((w.bbox.y1 - w.bbox.y0) / ocrCanvas.height) * height);
+      const pdfY = height - (w.bbox.y1 / ocrCanvas.height) * height;
+      const fontSize = Math.max(4, ph * 0.9);
+      newPage.drawText(clean, { x: px, y: pdfY, size: fontSize, font, opacity: 0 });
+    }
+  }
+
+  return { bytes: await newPdf.save(), texts, pagesOcr, pagesSkipped };
+};
+
+// 53. CERTIFICATE SIGN (Stirling-PDF Certificate Sign)
+// Signs a PDF with a real PKCS#12 certificate using @signpdf (byte-range
+// signature, Adobe/ETSI compliant, verifiable by any PDF viewer).
+export const certificateSignPdf = async (
+  pdfBuffer: ArrayBuffer,
+  p12Buffer: ArrayBuffer,
+  passphrase: string
+): Promise<{ bytes: Uint8Array; certName: string }> => {
+  const BufferImpl = (await import('buffer')).Buffer;
+  if (typeof globalThis !== 'undefined' && !(globalThis as Record<string, unknown>).Buffer) {
+    (globalThis as Record<string, unknown>).Buffer = BufferImpl;
+  }
+  const signpdf = (await import('@signpdf/signpdf')).default;
+  const { plainAddPlaceholder } = await import('@signpdf/placeholder-plain');
+  const { P12Signer } = await import('@signpdf/signer-p12');
+
+  // @signpdf's placeholder parser needs a classic (non-stream) xref table, so
+  // re-serialize the PDF before adding the placeholder.
+  const classicPdf = await PDFDocument.load(pdfBuffer);
+  const classicBytes = await classicPdf.save({ useObjectStreams: false });
+  const pdfBuf = BufferImpl.from(classicBytes);
+  const signer = new P12Signer(new Uint8Array(p12Buffer), { passphrase });
+
+  let certName = 'Signed Document';
+  try {
+    // Read the signer CN from the certificate inside the P12 container.
+    const forge = (await import('node-forge')).default;
+    const p12Bytes = new Uint8Array(p12Buffer);
+    let binary = '';
+    for (let i = 0; i < p12Bytes.length; i++) binary += String.fromCharCode(p12Bytes[i]);
+    const p12Asn1 = forge.asn1.fromDer(forge.util.createBuffer(binary));
+    const p12 = forge.pkcs12.pkcs12FromAsn1(p12Asn1, false, passphrase);
+    const certBags = p12.getBags({ bagType: forge.pki.oids.certBag })[forge.pki.oids.certBag];
+    const forgeCert = certBags && certBags[0] && certBags[0].cert;
+    if (forgeCert) {
+      const cn = forgeCert.subject.getField('CN');
+      if (cn && cn.value) certName = cn.value;
+    }
+  } catch {
+    // keep default name
+  }
+
+  const placeholder = plainAddPlaceholder({
+    pdfBuffer: pdfBuf,
+    reason: 'Digitally signed with a certificate via Docify',
+    contactInfo: '',
+    name: certName,
+    location: 'Browser (client-side)',
+    appName: 'Docify PDF Suite',
+    widgetRect: [72, 72, 240, 110],
+  });
+  const signed = await signpdf.sign(placeholder, signer);
+  return { bytes: new Uint8Array(signed), certName };
+};
+
+// 54. VALIDATE SIGNATURE (Stirling-PDF Validate Signature)
+export interface SignatureInfo {
+  name: string;
+  signingTime: string;
+  filter: string;
+  subFilter: string;
+  byteRange: number[];
+  valid: boolean;
+  certSubject: string;
+  certIssuer: string;
+  certValidFrom: string;
+  certValidTo: string;
+}
+
+export const validateSignaturePdf = async (
+  pdfBuffer: ArrayBuffer
+): Promise<{ signatures: SignatureInfo[]; error?: string }> => {
+  const BufferImpl = (await import('buffer')).Buffer;
+  if (typeof globalThis !== 'undefined' && !(globalThis as Record<string, unknown>).Buffer) {
+    (globalThis as Record<string, unknown>).Buffer = BufferImpl;
+  }
+  const forge = (await import('node-forge')).default;
+  const { extractSignature } = await import('@signpdf/utils');
+  const pdfBuf = BufferImpl.from(new Uint8Array(pdfBuffer));
+
+  let sig: { ByteRange: number[]; signature: string; signedData: Buffer };
+  try {
+    sig = extractSignature(pdfBuf);
+  } catch {
+    return { signatures: [], error: 'No digital signature found in this PDF.' };
+  }
+
+  const info: SignatureInfo = {
+    name: '',
+    signingTime: '',
+    filter: '',
+    subFilter: '',
+    byteRange: sig.ByteRange,
+    valid: false,
+    certSubject: '',
+    certIssuer: '',
+    certValidFrom: '',
+    certValidTo: '',
+  };
+
+  try {
+    // Parse the PKCS#7 (CMS) structure.
+    const asn1 = forge.asn1.fromDer(forge.util.createBuffer(sig.signature));
+    const p7 = forge.pkcs7.messageFromAsn1(asn1) as unknown as {
+      certificates?: Array<{
+        subject: { attributes: Array<{ name?: string; value?: string }> };
+        issuer: { attributes: Array<{ name?: string; value?: string }> };
+        validity: { notBefore: Date; notAfter: Date };
+        publicKey: { verify: (digest: string, sig: string, scheme: string) => boolean };
+      }>;
+    };
+    const cert = p7.certificates && p7.certificates[0];
+    if (cert) {
+      info.certSubject = cert.subject.attributes.map(a => `${a.name}=${a.value}`).join(', ');
+      info.certIssuer = cert.issuer.attributes.map(a => `${a.name}=${a.value}`).join(', ');
+      info.certValidFrom = cert.validity.notBefore.toISOString();
+      info.certValidTo = cert.validity.notAfter.toISOString();
+    }
+
+    if (cert) {
+      type Asn1Node = {
+        tagClass: number;
+        type: number;
+        constructed: boolean;
+        value: string | Asn1Node[];
+      };
+      const asn1Node = asn1 as unknown as Asn1Node;
+      const asn1Children = (asn1Node.value as Asn1Node[]);
+      // ContentInfo: SEQUENCE { OID, [0] { SignedData SEQUENCE } }
+      const signedData = (asn1Children[1].value as Asn1Node[])[0] as unknown as Asn1Node;
+      // SignedData last element is the SignerInfos SET
+      const signerInfos = (signedData.value as Asn1Node[])[(signedData.value as Asn1Node[]).length - 1];
+      const signerInfo = (signerInfos.value as Asn1Node[])[0];
+
+      // Walk the SignerInfo children: version, issuerAndSerialNumber, then
+      // digestAlgorithm, optional [0] authenticatedAttributes, digest
+      // encryption algorithm, and finally the encryptedDigest OCTETSTRING.
+      let digestOid: string | null = null;
+      let encryptedDigest: string | null = null;
+      let authAttrsNode: Asn1Node | null = null;
+      const signerChildren = signerInfo.value as Asn1Node[];
+      for (let idx = 2; idx < signerChildren.length; idx++) {
+        const child = signerChildren[idx];
+        if (child.tagClass === forge.asn1.Class.CONTEXT_SPECIFIC && child.type === 0 && child.constructed) {
+          authAttrsNode = child;
+        } else if (!child.constructed && child.type === forge.asn1.Type.OCTETSTRING) {
+          encryptedDigest = child.value as string;
+        } else if (child.constructed && !digestOid && Array.isArray(child.value) && child.value[0]) {
+          digestOid = forge.asn1.derToOid(child.value[0].value as string);
+        }
+      }
+
+      if (authAttrsNode && encryptedDigest && digestOid) {
+        const mdCtor = (forge.md as unknown as Record<string, { create: () => { update: (d: string) => void; digest: () => { bytes: () => string; getBytes: () => string } } }>)[forge.pki.oids[digestOid]];
+        // The [0] IMPLICIT node's value is the attribute list directly.
+        const attrs = authAttrsNode.value as Asn1Node[];
+        let mdAttrValue: string | null = null;
+        if (mdCtor && Array.isArray(attrs)) {
+          for (const attr of attrs) {
+            const attrValue = attr.value as Asn1Node[];
+            if (!attrValue[0] || !attrValue[0].value) continue;
+            const oid = forge.asn1.derToOid(attrValue[0].value as string);
+            if (oid === forge.pki.oids.messageDigest) {
+              const set = attrValue[1];
+              const setValue = set.value as Asn1Node[];
+              mdAttrValue = setValue[0] ? (setValue[0].value as string) : null;
+            }
+          }
+        }
+        if (mdAttrValue) {
+          const contentMd = mdCtor.create();
+          contentMd.update(sig.signedData.toString('binary'));
+          const contentOk = contentMd.digest().bytes() === mdAttrValue;
+
+          // The signature covers the DER encoding of the authenticated
+          // attributes as a SET (the [0] IMPLICIT tag is excluded).
+          const attrsSet = forge.asn1.create(
+            forge.asn1.Class.UNIVERSAL,
+            forge.asn1.Type.SET,
+            true,
+            authAttrsNode.value as unknown as Parameters<typeof forge.asn1.create>[3]
+          );
+          const attrsDer = forge.asn1.toDer(attrsSet).getBytes();
+          const attrsMd = mdCtor.create();
+          attrsMd.update(attrsDer);
+          const sigOk = cert.publicKey.verify(
+            attrsMd.digest().getBytes(),
+            encryptedDigest,
+            'RSASSA-PKCS1-V1_5'
+          );
+          info.valid = contentOk && sigOk;
+        }
+      }
+    }
+  } catch {
+    info.valid = false;
+  }
+
+  return { signatures: [info] };
+};
+
+// 55. VISUAL COMPARE (Stirling-PDF Compare)
+// Renders both PDFs page-by-page and produces a report PDF with side-by-side
+// views and red-highlighted pixel differences.
+export interface CompareReport {
+  pagesCompared: number;
+  changedPages: number[];
+  identicalPages: number[];
+}
+
+export const comparePdfsVisual = async (
+  buffer1: ArrayBuffer,
+  buffer2: ArrayBuffer
+): Promise<{ bytes: Uint8Array; report: CompareReport }> => {
+  const { renderPdfPageToCanvas } = await import('./pdf-client');
+  const pdf1 = await PDFDocument.load(buffer1);
+  const pdf2 = await PDFDocument.load(buffer2);
+  const count = Math.max(pdf1.getPageCount(), pdf2.getPageCount());
+  const out = await PDFDocument.create();
+  const report: CompareReport = { pagesCompared: count, changedPages: [], identicalPages: [] };
+
+  const renderSafe = async (buf: ArrayBuffer, pageNum: number, max: number): Promise<HTMLCanvasElement | null> => {
+    if (pageNum > max) return null;
+    try {
+      return await renderPdfPageToCanvas(buf, pageNum, 1.5);
+    } catch {
+      return null;
+    }
+  };
+
+  for (let i = 1; i <= count; i++) {
+    const c1 = await renderSafe(buffer1, i, pdf1.getPageCount());
+    const c2 = await renderSafe(buffer2, i, pdf2.getPageCount());
+    if (!c1 && !c2) continue;
+
+    const w = Math.max(c1?.width || 0, c2?.width || 0);
+    const h = Math.max(c1?.height || 0, c2?.height || 0);
+    const diffCanvas = document.createElement('canvas');
+    diffCanvas.width = w;
+    diffCanvas.height = h;
+    const dctx = diffCanvas.getContext('2d')!;
+    dctx.fillStyle = '#ffffff';
+    dctx.fillRect(0, 0, w, h);
+    if (c1) dctx.drawImage(c1, 0, 0);
+
+    let changed = 0;
+    if (c2) {
+      const d1 = c1 ? c1.getContext('2d')!.getImageData(0, 0, c1.width, c1.height) : null;
+      const d2 = c2.getContext('2d')!.getImageData(0, 0, c2.width, c2.height);
+      const cw = Math.min(c1?.width || 0, c2.width);
+      const ch = Math.min(c1?.height || 0, c2.height);
+      if (d1) {
+        const outData = dctx.getImageData(0, 0, w, h);
+        for (let py = 0; py < h; py++) {
+          for (let px = 0; px < w; px++) {
+            const idx = (py * w + px) * 4;
+            const inBounds = px < cw && py < ch;
+            if (!inBounds) {
+              changed++;
+              outData.data[idx] = 255;
+              outData.data[idx + 1] = 0;
+              outData.data[idx + 2] = 0;
+              outData.data[idx + 3] = 120;
+              continue;
+            }
+            const i1 = (py * c1!.width + px) * 4;
+            const i2 = (py * c2.width + px) * 4;
+            const diff = Math.abs(d1.data[i1] - d2.data[i2]) + Math.abs(d1.data[i1 + 1] - d2.data[i2 + 1]) + Math.abs(d1.data[i1 + 2] - d2.data[i2 + 2]);
+            if (diff > 45) {
+              changed++;
+              outData.data[idx] = 255;
+              outData.data[idx + 1] = 40;
+              outData.data[idx + 2] = 40;
+              outData.data[idx + 3] = 130;
+            }
+          }
+        }
+        dctx.putImageData(outData, 0, 0);
+      } else {
+        // page only in doc 2: everything counts as changed
+        changed = w * h;
+        dctx.drawImage(c2, 0, 0);
+      }
+    } else {
+      // page only in doc 1: everything counts as changed
+      changed = w * h;
+    }
+
+    if (changed > 0) report.changedPages.push(i);
+    else report.identicalPages.push(i);
+
+    // Build report page: A4 landscape, three thumbnails
+    const pw = 841.89;
+    const ph = 595.27;
+    const repPage = out.addPage([pw, ph]);
+    repPage.drawText(`Page ${i} comparison`, { x: 30, y: ph - 30, size: 14, font: await out.embedFont(StandardFonts.HelveticaBold), color: rgb(0.15, 0.15, 0.2) });
+    const changedPct = ((changed / Math.max(1, w * h)) * 100).toFixed(2);
+    repPage.drawText(`Changed pixels: ${changed.toLocaleString()} (${changedPct}%)`, { x: 30, y: ph - 46, size: 10, font: await out.embedFont(StandardFonts.Helvetica), color: changed > 0 ? rgb(0.8, 0.2, 0.2) : rgb(0.2, 0.6, 0.3) });
+
+    const thumbH = 380;
+    const thumbW = 260;
+    const yBase = 60;
+    const xPos = [40, 315, 590];
+    const thumbs = [c1, c2, diffCanvas];
+    const labels = ['Document 1', 'Document 2', 'Differences'];
+    for (let t = 0; t < 3; t++) {
+      const cv = thumbs[t];
+      if (!cv) continue;
+      const scale = Math.min(thumbW / cv.width, thumbH / cv.height);
+      const dw = cv.width * scale;
+      const dh = cv.height * scale;
+      const dx = xPos[t] + (thumbW - dw) / 2;
+      const dy = yBase + (thumbH - dh) / 2;
+      const img = await out.embedJpg(cv.toDataURL('image/jpeg', 0.85));
+      repPage.drawImage(img, { x: dx, y: dy, width: dw, height: dh });
+      repPage.drawText(labels[t], { x: xPos[t], y: yBase - 14, size: 10, font: await out.embedFont(StandardFonts.HelveticaBold), color: rgb(0.3, 0.3, 0.35) });
+    }
+  }
+
+  return { bytes: await out.save(), report };
+};
+
 
 

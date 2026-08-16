@@ -7,7 +7,7 @@ import {
   encryptPdfBuffer,
   decryptPdfBuffer,
   isDocifyXorEncrypted,
-} from './lib/pdf-security.ts';
+} from './lib/pdf-security';
 
 const plain = fs.readFileSync('C:/Users/shree/AppData/Local/Temp/opencode/plain.pdf');
 
@@ -44,8 +44,8 @@ async function main() {
     console.log('6. Wrong password correctly rejected:', (e as Error).message);
   }
 
-  const out = await encryptPdfBuffer(plain.buffer.slice(0), 'pw123');
-  const back = await decryptPdfBuffer(out.buffer.slice(0), 'pw123');
+  const out = await encryptPdfBuffer(plain.buffer.slice(0) as ArrayBuffer, 'pw123');
+  const back = await decryptPdfBuffer(out.buffer.slice(0) as ArrayBuffer, 'pw123');
   console.log('7. Backward wrapper round-trip ok:', Buffer.from(back).toString('latin1').includes('Hello Docify'));
 
   const legacyBytes = new Uint8Array(plain.length + 9);
